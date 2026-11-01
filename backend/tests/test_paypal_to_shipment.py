@@ -387,6 +387,119 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         self.assertIn("ORD-1004", after_ids)
         self.assertEqual(len(orders_after), len(orders_before) + 1)
 
+    def test_concurrent_shipment_creation_same_order(self):
+        """Simultaneous calls to create_shipment_for_order for the same paid checkout order."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        order = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        store.set_paypal_order_id(order["id"], "PP-CONC-1")
+        store.set_capture(order["id"], "CAP-CONC-1", "PAID")
+
+        barrier = threading.Barrier(2)
+
+        def worker():
+            barrier.wait()
+            return store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-CONC-1",
+                paypal_capture_id="CAP-CONC-1",
+                amount="12.99",
+                currency="USD",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut1 = executor.submit(worker)
+            fut2 = executor.submit(worker)
+            res1 = fut1.result()
+            res2 = fut2.result()
+
+        # Both calls complete successfully and return the same shipment
+        self.assertEqual(res1["id"], res2["id"])
+        self.assertEqual(res1["order_id"], res2["order_id"])
+
+        # Exactly 1 shipment exists in SQLite
+        shipments = list_shipments()
+        self.assertEqual(len(shipments), 1)
+        self.assertEqual(shipments[0]["id"], res1["id"])
+
+    def test_concurrent_shipment_creation_different_orders_same_capture_collision(self):
+        """Simultaneous attempts to associate one capture ID with two different checkout orders."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        order_a = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        order_b = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+
+        store.set_paypal_order_id(order_a["id"], "PP-A")
+        store.set_capture(order_a["id"], "SHARED-CAP-1", "PAID")
+
+        # Manually link order_b in DB with a distinct capture first to satisfy order table unique constraint,
+        # then test create_shipment_for_order attempting to claim SHARED-CAP-1
+        store.set_paypal_order_id(order_b["id"], "PP-B")
+
+        barrier = threading.Barrier(2)
+
+        def worker_a():
+            barrier.wait()
+            return store.create_shipment_for_order(
+                checkout_order_id=order_a["id"],
+                paypal_order_id="PP-A",
+                paypal_capture_id="SHARED-CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+
+        def worker_b():
+            barrier.wait()
+            # Order B attempts to claim SHARED-CAP-1
+            return store.create_shipment_for_order(
+                checkout_order_id=order_b["id"],
+                paypal_order_id="PP-B",
+                paypal_capture_id="SHARED-CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_a = executor.submit(worker_a)
+            fut_b = executor.submit(worker_b)
+
+            res_a = None
+            res_b = None
+            err_a = None
+            err_b = None
+
+            try:
+                res_a = fut_a.result()
+            except Exception as e:
+                err_a = e
+
+            try:
+                res_b = fut_b.result()
+            except Exception as e:
+                err_b = e
+
+        # Exactly one order succeeds; the other gets an error (order_b is unpaid or collision error)
+        # Because SHARED-CAP-1 cannot belong to both orders
+        successes = [r for r in [res_a, res_b] if r is not None]
+        errors = [e for e in [err_a, err_b] if e is not None]
+
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], ValueError)
+
+        # In SQLite, exactly 1 shipment exists with SHARED-CAP-1
+        conn = store._connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM shipments WHERE paypal_capture_id = 'SHARED-CAP-1'"
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["checkout_order_id"], successes[0]["checkout_order_id"])
+        finally:
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

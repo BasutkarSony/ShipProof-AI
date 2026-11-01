@@ -36,9 +36,9 @@ CATALOGUE = [
 ]
 
 
-def _connect() -> sqlite3.Connection:
+def _connect(timeout: float = 30.0) -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -856,52 +856,73 @@ def create_shipment_for_order(
         if not evidence_text:
             evidence_text = f"Payment captured via PayPal ({paypal_capture_id}). Shipment created on hold awaiting merchant dispatch and carrier assignment."
 
-        # Insert safely under concurrent execution
-        try:
-            with conn:
-                conn.execute(
-                    """
-                    INSERT INTO shipments (
-                        id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
-                        tracking_number, carrier, carrier_name_other, status,
-                        shipped_date, delivered_date, transaction_date, amount, currency,
-                        shipping_address, evidence_text, signature_obtained, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
-                    """,
-                    (
-                        shipment_uuid,
-                        shipment_order_id,
-                        checkout_order_id,
-                        paypal_order_id,
-                        paypal_capture_id,
-                        tracking_number,
-                        carrier,
-                        carrier_name_other,
-                        status,
-                        today_date,
-                        amount_val,
-                        currency,
-                        shipping_address,
-                        evidence_text,
-                        now_iso,
-                        now_iso,
-                    ),
-                )
-        except sqlite3.IntegrityError:
-            # Handle concurrent conflict safely: fetch and return existing row
-            existing = conn.execute(
-                "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
-                (checkout_order_id, paypal_capture_id),
-            ).fetchone()
-            if existing:
-                if existing["checkout_order_id"] != checkout_order_id:
-                    raise ValueError(
-                        f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {existing['checkout_order_id']}"
-                    )
-                return _row_to_shipment(existing)
-            raise
+        # Insert safely under concurrent execution with retry for database locks or integrity conflicts
+        import time
 
-        return get_shipment_by_order_id(shipment_order_id)
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT INTO shipments (
+                            id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
+                            tracking_number, carrier, carrier_name_other, status,
+                            shipped_date, delivered_date, transaction_date, amount, currency,
+                            shipping_address, evidence_text, signature_obtained, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+                        """,
+                        (
+                            shipment_uuid,
+                            shipment_order_id,
+                            checkout_order_id,
+                            paypal_order_id,
+                            paypal_capture_id,
+                            tracking_number,
+                            carrier,
+                            carrier_name_other,
+                            status,
+                            today_date,
+                            amount_val,
+                            currency,
+                            shipping_address,
+                            evidence_text,
+                            now_iso,
+                            now_iso,
+                        ),
+                    )
+                return get_shipment_by_order_id(shipment_order_id)
+            except sqlite3.IntegrityError:
+                # Handle concurrent conflict safely: another thread inserted first.
+                # Query the existing record and validate linkage.
+                existing = conn.execute(
+                    "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
+                    (checkout_order_id, paypal_capture_id),
+                ).fetchone()
+                if existing:
+                    if existing["checkout_order_id"] != checkout_order_id:
+                        raise ValueError(
+                            f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {existing['checkout_order_id']}"
+                        )
+                    return _row_to_shipment(existing)
+                raise
+            except sqlite3.OperationalError as op_err:
+                # If database locked during concurrency, check if another thread finished insertion
+                existing = conn.execute(
+                    "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
+                    (checkout_order_id, paypal_capture_id),
+                ).fetchone()
+                if existing:
+                    if existing["checkout_order_id"] != checkout_order_id:
+                        raise ValueError(
+                            f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {existing['checkout_order_id']}"
+                        )
+                    return _row_to_shipment(existing)
+
+                if "locked" in str(op_err).lower() and attempt < max_retries - 1:
+                    time.sleep(0.05 * (2 ** attempt))
+                    continue
+                raise
     finally:
         conn.close()
 
