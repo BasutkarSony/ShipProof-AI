@@ -33,6 +33,12 @@ wheels/
 .installed.cfg
 *.egg
 
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+backend/data/*.db
+
 # Node & Frontend Build Outputs
 node_modules/
 frontend/node_modules/

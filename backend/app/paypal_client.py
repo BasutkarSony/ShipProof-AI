@@ -1,10 +1,17 @@
 ﻿import os
+from decimal import Decimal
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 SANDBOX_BASE = "https://api-m.sandbox.paypal.com"
+
+TWO_PLACES = Decimal("0.01")
+
+
+def _money(amount_cents: int) -> str:
+    return str((Decimal(amount_cents) / 100).quantize(TWO_PLACES))
 
 
 class PayPalConfigurationError(RuntimeError):
@@ -98,3 +105,75 @@ def submit_tracking(order: dict) -> dict:
             "paypal_response": body,
         }.__str__())
     return body
+
+
+def create_paypal_order(token: str, amount_cents: int, currency: str = "USD") -> dict:
+    body = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "amount": {
+                "currency_code": currency,
+                "value": _money(amount_cents),
+            },
+        }],
+        "payment_source": {
+            "paypal": {
+                "experience_context": {
+                    "brand_name": "ShipProof AI",
+                    "locale": "en-US",
+                    "landing_page": "LOGIN",
+                    "shipping_preference": "NO_SHIPPING",
+                    "return_url": "http://localhost:5173/checkout/return",
+                    "cancel_url": "http://localhost:5173/checkout/cancel",
+                }
+            }
+        },
+    }
+
+    response = requests.post(
+        f"{SANDBOX_BASE}/v2/checkout/orders",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        },
+        json=body,
+        timeout=30,
+    )
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = {"message": "PayPal returned a non-JSON response."}
+
+    if not response.ok:
+        raise RuntimeError({
+            "http_status": response.status_code,
+            "paypal_response": response_body,
+        }.__str__())
+    return response_body
+
+
+def capture_paypal_order(token: str, order_id: str, request_id: str | None = None) -> dict:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if request_id:
+        headers["PayPal-Request-Id"] = request_id
+
+    response = requests.post(
+        f"{SANDBOX_BASE}/v2/checkout/orders/{order_id}/capture",
+        headers=headers,
+        timeout=30,
+    )
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = {"message": "PayPal returned a non-JSON response."}
+
+    if not response.ok:
+        raise RuntimeError({
+            "http_status": response.status_code,
+            "paypal_response": response_body,
+        }.__str__())
+    return response_body

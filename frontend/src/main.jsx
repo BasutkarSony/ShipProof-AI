@@ -2,47 +2,87 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import './style.css'
 
-// Professional Inline SVGs
+// ─── ShipProof AI — unified shell across all routes ───────────────────────────
+// Routes: / (Shipment Review)  /checkout  /checkout/return  /checkout/cancel
+// All four routes share the same Sidebar; main content is swapped via renderMain()
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
 const CheckIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
     <polyline points="20 6 9 17 4 12" />
   </svg>
 )
 
 const AlertIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
     <line x1="18" y1="6" x2="6" y2="18" />
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 )
 
 const ArrowIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
     <line x1="5" y1="12" x2="19" y2="12" />
     <polyline points="12 5 19 12 12 19" />
   </svg>
 )
 
 const LockIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </svg>
 )
 
 const SearchIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="11" cy="11" r="8" />
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 )
 
 const ShieldIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </svg>
 )
 
+const CartIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+  </svg>
+)
+
+const PayPalIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M7.5 21H3L6.75 3h6.75c2.25 0 4.5 1.5 4.5 4.5 0 4.5-3.75 6-6.75 6H9L7.5 21zm3-10.5h1.5c1.5 0 2.25-.75 2.25-2.25S13.5 6 12 6H10.5l-1.125 5.25L10.5 10.5z" opacity=".6" />
+    <path d="M11.25 21H6.75L10.5 6h6.75c2.25 0 4.5 1.5 4.5 4.5 0 4.5-3.75 6-6.75 6h-2.25L11.25 21zm3-10.5h1.5c1.5 0 2.25-.75 2.25-2.25S16.5 6 15 6h-1.5L12.375 10.5l2.625.001-.75-.001z" />
+  </svg>
+)
+
+const SuccessCircleIcon = () => (
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
+  </svg>
+)
+
+const CancelCircleIcon = () => (
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="15" y1="9" x2="9" y2="15" />
+    <line x1="9" y1="9" x2="15" y2="15" />
+  </svg>
+)
+
+const SpinnerIcon = () => (
+  <svg className="spinner-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M12 2a10 10 0 0 1 10 10" />
+  </svg>
+)
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [orders, setOrders] = useState([])
   const [results, setResults] = useState({})
@@ -73,15 +113,29 @@ export default function App() {
   })
   const [inspectLoading, setInspectLoading] = useState(false)
 
+  // Checkout state
+  const [catalog, setCatalog] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  const [cart, setCart] = useState({})
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [checkoutError, setCheckoutError] = useState('')
+  const [captureLoading, setCaptureLoading] = useState(false)
+  const [captureResult, setCaptureResult] = useState(null)
+  const [captureError, setCaptureError] = useState('')
+  const [currentPath, setCurrentPath] = useState(window.location.pathname)
+
+  // Effect 1: mount-only — register popstate listener, fetch dashboard data once.
   useEffect(() => {
+    const handleRouteChange = () => setCurrentPath(window.location.pathname)
+    window.addEventListener('popstate', handleRouteChange)
+
     fetch('http://127.0.0.1:8000/api/orders')
       .then(r => {
         if (!r.ok) throw new Error('Could not load shipments')
         return r.json()
       })
-      .then(data => {
-        setOrders(data.orders || [])
-      })
+      .then(data => setOrders(data.orders || []))
       .catch(() => setError('Cannot connect to the backend. Make sure it is running on port 8000.'))
       .finally(() => setLoading(false))
 
@@ -92,9 +146,23 @@ export default function App() {
       })
       .then(data => setPaypal(data))
       .catch(() => setPaypal({ error: 'PayPal status unavailable' }))
-  }, [])
 
-  // Validate a single order
+    return () => window.removeEventListener('popstate', handleRouteChange)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Effect 2: route-specific side-effects — runs once per path change.
+  // navigateTo() never calls loadCatalog/handleCaptureReturn directly;
+  // this effect is the single place that triggers route-dependent API calls.
+  useEffect(() => {
+    if (currentPath === '/checkout') {
+      loadCatalog()
+    }
+    if (currentPath === '/checkout/return') {
+      handleCaptureReturn()
+    }
+  }, [currentPath]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Shipment Review functions ────────────────────────────────────────────
   async function validate(order) {
     setResults(old => ({ ...old, [order.order_id]: { loading: true } }))
     try {
@@ -114,7 +182,6 @@ export default function App() {
     }
   }
 
-  // AI evidence analysis
   async function analyzeOrderEvidence(order) {
     setAiResults(old => ({ ...old, [order.order_id]: { loading: true } }))
     try {
@@ -134,7 +201,6 @@ export default function App() {
     }
   }
 
-  // Batch actions
   async function handleValidateAll() {
     setBatchValidateLoading(true)
     for (const order of orders) {
@@ -151,7 +217,6 @@ export default function App() {
     setBatchAiLoading(false)
   }
 
-  // Verify PayPal Sandbox connection via OAuth token exchange without submitting data
   async function testPayPalConnection() {
     setOauthTesting(true)
     try {
@@ -172,7 +237,6 @@ export default function App() {
     }
   }
 
-  // Open Drawer and populate remediation form
   function openInspector(order) {
     setSelectedOrder(order)
     setRemediationForm({
@@ -186,7 +250,6 @@ export default function App() {
     })
     setCopiedPayload(false)
 
-    // Run both checks if not already cached
     if (!aiResults[order.order_id]) {
       setInspectLoading(true)
       analyzeOrderEvidence(order).finally(() => setInspectLoading(false))
@@ -196,7 +259,6 @@ export default function App() {
     }
   }
 
-  // Re-run analysis with remediation form inputs
   async function handleRemediationSubmit() {
     if (!selectedOrder) return
     setInspectLoading(true)
@@ -212,11 +274,9 @@ export default function App() {
       evidence_text: remediationForm.evidence_text
     }
 
-    // Update in local orders array
     setOrders(prev => prev.map(o => o.order_id === updatedOrder.order_id ? updatedOrder : o))
     setSelectedOrder(updatedOrder)
 
-    // Re-run both validation and AI analysis
     await Promise.all([
       validate(updatedOrder),
       analyzeOrderEvidence(updatedOrder)
@@ -225,7 +285,6 @@ export default function App() {
     setInspectLoading(false)
   }
 
-  // Copy PayPal JSON payload
   function copyPayload(payload) {
     if (!payload) return
     navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
@@ -237,11 +296,9 @@ export default function App() {
   const validatedCount = Object.values(results).filter(r => !r.loading && !r.error)
   const readyChecksCount = validatedCount.filter(r => r.result === 'PASS').length
   const blockedCount = validatedCount.filter(r => r.result === 'BLOCKED').length
-
   const aiList = Object.values(aiResults).filter(r => !r.loading && !r.error)
   const protectionReadyCount = aiList.filter(r => r.protection_tier === 'FULL_PROTECTION_READY').length
 
-  // Filtered orders list
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
       const q = searchQuery.toLowerCase().trim()
@@ -275,423 +332,972 @@ export default function App() {
   const currentAiResult = selectedOrder ? aiResults[selectedOrder.order_id] : null
   const currentValidation = selectedOrder ? results[selectedOrder.order_id] : null
 
-  return (
-    <div className="app-shell">
-      {/* Sidebar Navigation */}
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">S</div>
-          <div className="brand-title">
-            <strong>ShipProof AI</strong>
-            <small>PAYPAL EVIDENCE CONTROL</small>
-          </div>
-        </div>
+  // ─── Checkout functions ───────────────────────────────────────────────────
+  async function loadCatalog() {
+    setCatalogLoading(true)
+    setCatalogError('')
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/catalog')
+      if (!res.ok) throw new Error('Could not load product catalog')
+      const data = await res.json()
+      setCatalog(data.products || [])
+    } catch {
+      setCatalogError('Could not load product catalog. Make sure the backend is running on port 8000.')
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
 
+  function addToCart(sku) {
+    setCart(prev => ({ ...prev, [sku]: (prev[sku] || 0) + 1 }))
+  }
+
+  function removeFromCart(sku) {
+    setCart(prev => {
+      const next = { ...prev }
+      if (next[sku] > 1) next[sku] -= 1
+      else delete next[sku]
+      return next
+    })
+  }
+
+  function getCartItems() {
+    return Object.entries(cart).map(([sku, quantity]) => ({ sku, quantity }))
+  }
+
+  function getCartTotal() {
+    return getCartItems().reduce((sum, { sku, quantity }) => {
+      const product = catalog.find(p => p.sku === sku)
+      return sum + (product ? parseFloat(product.price) * quantity : 0)
+    }, 0)
+  }
+
+  async function handleCheckout() {
+    const items = getCartItems()
+    if (items.length === 0) {
+      setCheckoutError('Please add at least one item to your cart.')
+      return
+    }
+
+    setCheckoutLoading(true)
+    setCheckoutError('')
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/checkout/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, currency: 'USD' })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail) || 'Checkout failed')
+      }
+      const data = await res.json()
+
+      sessionStorage.setItem('shipproof_order_id', data.order_id)
+      sessionStorage.setItem('shipproof_paypal_order_id', data.paypal_order_id)
+
+      if (data.approval_url) {
+        window.location.href = data.approval_url
+      } else {
+        setCheckoutError('PayPal did not provide an approval URL.')
+      }
+    } catch (err) {
+      setCheckoutError(err.message || 'Checkout failed. Check the backend.')
+    } finally {
+      setCheckoutLoading(false)
+    }
+  }
+
+  async function handleCaptureReturn() {
+    const orderId = sessionStorage.getItem('shipproof_order_id')
+    if (!orderId) {
+      setCaptureError('No order found in session. Please start a new checkout.')
+      return
+    }
+
+    setCaptureLoading(true)
+    setCaptureError('')
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/checkout/orders/${orderId}/capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail) || 'Payment capture failed')
+      }
+      const data = await res.json()
+      if (data.payment_status === 'PAID' || data.already_captured) {
+        sessionStorage.removeItem('shipproof_order_id')
+        sessionStorage.removeItem('shipproof_paypal_order_id')
+      }
+      setCaptureResult(data)
+    } catch (err) {
+      setCaptureError(err.message || 'Payment capture failed. Check the backend.')
+    } finally {
+      setCaptureLoading(false)
+    }
+  }
+
+  function navigateTo(path) {
+    window.history.pushState({}, '', path)
+    // Reset per-route UI state before the route effect fires.
+    // Do NOT call loadCatalog() or handleCaptureReturn() here —
+    // Effect 2 (keyed on currentPath) is the single trigger for those.
+    if (path === '/checkout') {
+      setCart({})
+      setCheckoutError('')
+      setCatalogError('')
+    }
+    if (path === '/') {
+      setCheckoutError('')
+    }
+    if (path === '/checkout/return') {
+      setCaptureError('')
+      setCaptureResult(null)
+    }
+    if (path === '/checkout/cancel') {
+      setCaptureError('')
+      setCaptureResult(null)
+    }
+    setCurrentPath(path)
+  }
+
+  // ─── Route helpers ────────────────────────────────────────────────────────
+  const isCheckoutRoute = currentPath === '/checkout' ||
+    currentPath === '/checkout/return' ||
+    currentPath === '/checkout/cancel'
+  const isDashboard = !isCheckoutRoute
+
+  // ─── Shared Sidebar ───────────────────────────────────────────────────────
+  const Sidebar = () => (
+    <aside className="sidebar" aria-label="Application navigation">
+      <div className="brand">
+        <div className="brand-icon" aria-hidden="true">S</div>
+        <div className="brand-title">
+          <strong>ShipProof AI</strong>
+          <small>PAYPAL EVIDENCE CONTROL</small>
+        </div>
+      </div>
+
+      <nav aria-label="Main navigation">
         <div className="nav-section">Merchant Workspace</div>
-        <div className="nav-item active">
-          <span>▦</span>
+        <button
+          className={`nav-item nav-item-btn ${isDashboard ? 'active' : ''}`}
+          onClick={() => navigateTo('/')}
+          aria-current={isDashboard ? 'page' : undefined}
+        >
+          <span aria-hidden="true">▦</span>
           <span>Shipment Review</span>
-          <span className="nav-badge">{orders.length}</span>
-        </div>
+          <span className="nav-badge" aria-label={`${orders.length} shipments`}>{orders.length}</span>
+        </button>
+        <button
+          className={`nav-item nav-item-btn ${isCheckoutRoute ? 'active' : ''}`}
+          onClick={() => navigateTo('/checkout')}
+          aria-current={isCheckoutRoute ? 'page' : undefined}
+        >
+          <span aria-hidden="true"><CartIcon /></span>
+          <span>New Checkout</span>
+        </button>
+      </nav>
 
-        <div className="side-card">
-          <div className="side-card-header">
-            <span className="pulse"></span>
-            <span>Policy Engine Active</span>
-          </div>
-          <div className="side-card-body">
-            Deterministic NLP heuristics evaluate shipments against official PayPal Seller Protection guidelines.
-          </div>
+      <div className="side-card">
+        <div className="side-card-header">
+          <span className="pulse" aria-hidden="true"></span>
+          <span>Policy Engine Active</span>
         </div>
-
-        <div className="sidebar-footer">
-          <strong>PAYPAL AI HACKATHON 2026</strong>
-          <p>Pre-submission verification · Zero-hallucination compliance · Safe sandbox tracking.</p>
+        <div className="side-card-body">
+          Deterministic NLP heuristics evaluate shipments against official PayPal Seller Protection guidelines.
         </div>
-      </aside>
+      </div>
 
-      {/* Main Content Area */}
-      <main className="main">
+      <div className="sidebar-footer">
+        <strong>PAYPAL AI HACKATHON 2026</strong>
+        <p>Pre-submission verification · Zero-hallucination compliance · Safe sandbox tracking.</p>
+      </div>
+    </aside>
+  )
+
+  // ─── Checkout Catalog View ────────────────────────────────────────────────
+  const CheckoutCatalogView = () => {
+    const cartItemCount = getCartItems().reduce((s, i) => s + i.quantity, 0)
+    const cartTotal = getCartTotal()
+    const hasItems = cartItemCount > 0
+
+    return (
+      <main className="main" id="main-content">
         {/* Topbar */}
         <header className="topbar">
           <div className="breadcrumb">
             <span>Workspace</span>
             <span>/</span>
-            <strong>Shipment Evidence Queue</strong>
+            <strong>New Checkout</strong>
           </div>
-
           <div className="topbar-actions">
             <button
-              className="pill-status"
-              onClick={testPayPalConnection}
-              disabled={oauthTesting}
-              title="Click to test live PayPal Sandbox OAuth 2.0 authentication"
+              className="btn-secondary"
+              onClick={() => navigateTo('/')}
+              aria-label="Back to Shipment Review dashboard"
             >
-              <span className={`pulse ${oauthVerified ? '' : 'warn'}`}></span>
-              <span>
-                {oauthTesting
-                  ? 'Testing Sandbox Auth…'
-                  : oauthVerified
-                  ? oauthMessage
-                  : paypal.configured
-                  ? 'PayPal Sandbox: Authenticate ↗'
-                  : 'PayPal Sandbox: Not Configured'}
-              </span>
+              ← Back to Shipment Review
             </button>
-            <div className="pill-status">
-              <span style={{ color: '#275619', fontWeight: 700 }}>Write Gate: Locked</span>
-            </div>
           </div>
         </header>
 
-        {/* Hero Banner */}
-        <section className="hero">
-          <div className="hero-copy">
-            <div className="eyebrow">
-              <span>●</span> PRE-SUBMISSION SHIPMENT EVIDENCE & SELLER PROTECTION
-            </div>
-            <h1>
-              Proof before
-              <br />
-              <span>you submit.</span>
-            </h1>
-            <p>
-              Catch missing tracking numbers, invalid transit chronology, carrier mismatches, and $750+ high-value signature
-              omissions before transmitting shipping evidence to PayPal Sandbox.
-            </p>
-          </div>
-
-          <div className="hero-art-card">
-            <div className="art-shield">
-              <div className="shield-icon">
-                <ShieldIcon />
-              </div>
-              <div>
-                <strong>Seller Protection</strong>
-                <small>Evidence Pre-Screening</small>
+        <div className="checkout-layout">
+          {/* Product Catalogue */}
+          <section className="checkout-catalog-section" aria-labelledby="catalog-heading">
+            <div className="queue-header" style={{ marginBottom: '20px' }}>
+              <div className="queue-title">
+                <div className="eyebrow">PRODUCT CATALOGUE</div>
+                <h1 id="catalog-heading" className="checkout-page-heading">Packaging Products</h1>
+                <p>Select the shipping materials you need. The final total is verified server-side before payment.</p>
               </div>
             </div>
-            <div className="art-lines">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-            <div className="art-tag">AUDITABLE RULE-BASED NLP</div>
-          </div>
-        </section>
 
-        {/* Engine Transparency & Architecture Disclosure */}
-        <section className="architecture-banner">
-          <div className="arch-info">
-            <div className="arch-badge">AUDITABLE ENGINE</div>
-            <div className="arch-text">
-              <strong>Deterministic NLP & PayPal Policy Rules Engine</strong>
-              <p>
-                Zero-hallucination compliance architecture: evaluates carrier tracking regexes, milestone timelines, destination matching, and PayPal's $750+ signature threshold.
+            {catalogLoading ? (
+              <div className="checkout-state-box" role="status" aria-live="polite">
+                <div className="checkout-state-icon loading-spinner" aria-hidden="true">
+                  <SpinnerIcon />
+                </div>
+                <p>Loading product catalogue…</p>
+              </div>
+            ) : catalogError ? (
+              <div className="checkout-state-box checkout-state-error" role="alert">
+                <div className="checkout-state-icon error-icon" aria-hidden="true">
+                  <AlertIcon />
+                </div>
+                <p>{catalogError}</p>
+                <button className="btn-primary" onClick={loadCatalog}>
+                  Retry
+                </button>
+              </div>
+            ) : catalog.length === 0 ? (
+              <div className="checkout-state-box" role="status">
+                <p>No products available at the moment.</p>
+              </div>
+            ) : (
+              <div className="catalog-grid">
+                {catalog.map(product => {
+                  const qty = cart[product.sku] || 0
+                  return (
+                    <article key={product.sku} className="catalog-card">
+                      <div className="catalog-card-body">
+                        <div className="catalog-card-sku">{product.sku}</div>
+                        <h2 className="catalog-card-name">{product.name}</h2>
+                        <p className="catalog-card-desc">{product.description}</p>
+                      </div>
+                      <div className="catalog-card-footer">
+                        <div className="catalog-card-price" aria-label={`Price: $${parseFloat(product.price).toFixed(2)} USD`}>
+                          <span className="price-amount">${parseFloat(product.price).toFixed(2)}</span>
+                          <span className="price-currency">USD</span>
+                        </div>
+                        <div className="qty-controls" role="group" aria-label={`Quantity for ${product.name}`}>
+                          <button
+                            className="qty-btn"
+                            onClick={() => removeFromCart(product.sku)}
+                            disabled={qty === 0}
+                            aria-label={`Decrease quantity of ${product.name}`}
+                          >
+                            −
+                          </button>
+                          <span className="qty-value" aria-live="polite" aria-atomic="true">{qty}</span>
+                          <button
+                            className="qty-btn"
+                            onClick={() => addToCart(product.sku)}
+                            aria-label={`Increase quantity of ${product.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Order Summary */}
+          <aside className="checkout-summary-panel" aria-labelledby="summary-heading">
+            <div className="summary-header">
+              <h2 id="summary-heading" className="summary-title">Order Summary</h2>
+              <span className="summary-badge">
+                {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}
+              </span>
+            </div>
+
+            {hasItems ? (
+              <>
+                <ul className="summary-line-items" aria-label="Cart contents">
+                  {getCartItems().map(({ sku, quantity }) => {
+                    const product = catalog.find(p => p.sku === sku)
+                    if (!product) return null
+                    const lineTotal = (parseFloat(product.price) * quantity).toFixed(2)
+                    return (
+                      <li key={sku} className="summary-line-item">
+                        <div className="summary-line-name">
+                          <span className="summary-line-product">{product.name}</span>
+                          <span className="summary-line-sku">{product.sku}</span>
+                        </div>
+                        <div className="summary-line-right">
+                          <span className="summary-line-qty">× {quantity}</span>
+                          <span className="summary-line-total">${lineTotal}</span>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+
+                <div className="summary-total-row">
+                  <div>
+                    <div className="summary-total-label">Estimated Total</div>
+                    <div className="summary-total-note">Server recalculates &amp; verifies final total</div>
+                  </div>
+                  <div className="summary-total-amount" aria-label={`Estimated total: $${cartTotal.toFixed(2)} USD`}>
+                    ${cartTotal.toFixed(2)}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="summary-empty" role="status">
+                <CartIcon />
+                <p>Your cart is empty.<br />Add items from the catalogue.</p>
+              </div>
+            )}
+
+            {checkoutError && (
+              <div className="findings-box issues summary-error" role="alert">
+                {checkoutError}
+              </div>
+            )}
+
+            <button
+              className="btn-paypal"
+              onClick={handleCheckout}
+              disabled={!hasItems || checkoutLoading}
+              aria-label={!hasItems ? 'Add items to cart before checking out' : 'Proceed to PayPal checkout'}
+            >
+              {checkoutLoading ? (
+                <>
+                  <span className="btn-spinner" aria-hidden="true"></span>
+                  Creating order…
+                </>
+              ) : (
+                <>
+                  <PayPalIcon />
+                  Proceed to PayPal
+                </>
+              )}
+            </button>
+
+            <div className="summary-security-note">
+              <LockIcon />
+              <span>Payments processed securely via PayPal Sandbox. No charges until you approve.</span>
+            </div>
+          </aside>
+        </div>
+      </main>
+    )
+  }
+
+  // ─── Checkout Return View ─────────────────────────────────────────────────
+  const CheckoutReturnView = () => {
+    const isPaid = captureResult?.payment_status === 'PAID' || captureResult?.already_captured
+
+    if (captureLoading) {
+      return (
+        <main className="main" id="main-content">
+          <header className="topbar">
+            <div className="breadcrumb">
+              <span>Workspace</span>
+              <span>/</span>
+              <span>New Checkout</span>
+              <span>/</span>
+              <strong>Processing Payment</strong>
+            </div>
+          </header>
+          <div className="result-card-wrap">
+            <div className="result-card" role="status" aria-live="polite" aria-label="Processing payment">
+              <div className="result-card-icon processing">
+                <SpinnerIcon />
+              </div>
+              <h1 className="result-card-heading">Processing payment…</h1>
+              <p className="result-card-sub">Please wait while we confirm your payment with PayPal.</p>
+            </div>
+          </div>
+        </main>
+      )
+    }
+
+    if (captureError) {
+      return (
+        <main className="main" id="main-content">
+          <header className="topbar">
+            <div className="breadcrumb">
+              <span>Workspace</span>
+              <span>/</span>
+              <span>New Checkout</span>
+              <span>/</span>
+              <strong>Payment Error</strong>
+            </div>
+          </header>
+          <div className="result-card-wrap">
+            <div className="result-card result-card--error" role="alert">
+              <div className="result-card-icon error">
+                <CancelCircleIcon />
+              </div>
+              <h1 className="result-card-heading">Payment not verified</h1>
+              <p className="result-card-sub">{captureError}</p>
+              <div className="result-card-actions">
+                <button className="btn-primary" onClick={() => navigateTo('/checkout')}>
+                  Try checkout again
+                </button>
+                <button className="btn-secondary" onClick={() => navigateTo('/')}>
+                  Shipment Review
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      )
+    }
+
+    if (isPaid) {
+      return (
+        <main className="main" id="main-content">
+          <header className="topbar">
+            <div className="breadcrumb">
+              <span>Workspace</span>
+              <span>/</span>
+              <span>New Checkout</span>
+              <span>/</span>
+              <strong>Payment Successful</strong>
+            </div>
+          </header>
+          <div className="result-card-wrap">
+            <div className="result-card result-card--success">
+              <div className="result-card-icon success" aria-hidden="true">
+                <SuccessCircleIcon />
+              </div>
+              <div className="result-status-badge pill pill-pass">PAID</div>
+              <h1 className="result-card-heading">Payment successful</h1>
+              <p className="result-card-sub">
+                Your payment has been captured and confirmed by PayPal Sandbox.
               </p>
+
+              <dl className="result-detail-list">
+                <div className="result-detail-row">
+                  <dt>Local Order ID</dt>
+                  <dd className="result-detail-value">{captureResult.order_id}</dd>
+                </div>
+                {captureResult.paypal_capture_id && (
+                  <div className="result-detail-row">
+                    <dt>PayPal Capture ID</dt>
+                    <dd className="result-detail-value">{captureResult.paypal_capture_id}</dd>
+                  </div>
+                )}
+                {captureResult.paypal_order_id && (
+                  <div className="result-detail-row">
+                    <dt>PayPal Order ID</dt>
+                    <dd className="result-detail-value">{captureResult.paypal_order_id}</dd>
+                  </div>
+                )}
+                <div className="result-detail-row">
+                  <dt>Payment Status</dt>
+                  <dd>
+                    <span className="pill pill-pass">PAID</span>
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="result-card-actions">
+                <button className="btn-primary" onClick={() => navigateTo('/')}>
+                  View Shipment Review
+                </button>
+                <button className="btn-secondary" onClick={() => navigateTo('/checkout')}>
+                  Create another checkout
+                </button>
+              </div>
             </div>
           </div>
-          <button
-            className="arch-criteria-toggle"
-            onClick={() => setShowArchDetails(prev => !prev)}
-          >
-            {showArchDetails ? 'Hide criteria ▲' : 'View 5 core criteria ▼'}
-          </button>
-        </section>
+        </main>
+      )
+    }
 
-        {showArchDetails && (
-          <div className="arch-details-drawer">
-            <strong>Evaluated Seller Protection & Data Quality Checks:</strong>
-            <div className="arch-grid">
-              <div className="arch-card">
-                <strong>1. Carrier Pattern Verification</strong>
-                Detects format consistency for UPS (1Z), FedEx, USPS (9x), DHL, and warns on carrier mismatch.
-              </div>
-              <div className="arch-card">
-                <strong>2. High-Value $750+ Signature</strong>
-                Checks if orders ≥ $750 USD include verified signature confirmation required by PayPal.
-              </div>
-              <div className="arch-card">
-                <strong>3. Transit Chronology</strong>
-                Verifies dispatch and delivery milestones (disallows delivery prior to shipment or in the future).
-              </div>
-              <div className="arch-card">
-                <strong>4. Proof of Delivery / Destination</strong>
-                Matches recipient city/postal-code tokens against carrier delivery scan notes.
-              </div>
-              <div className="arch-card">
-                <strong>5. Exception Extraction</strong>
-                Flags negative signals: returned to sender, damaged in transit, undeliverable, or failed delivery.
-              </div>
+    // Capture returned but payment_status is not PAID and not already_captured
+    return (
+      <main className="main" id="main-content">
+        <header className="topbar">
+          <div className="breadcrumb">
+            <span>Workspace</span>
+            <span>/</span>
+            <span>New Checkout</span>
+            <span>/</span>
+            <strong>Payment Unverified</strong>
+          </div>
+        </header>
+        <div className="result-card-wrap">
+          <div className="result-card result-card--error" role="alert">
+            <div className="result-card-icon error" aria-hidden="true">
+              <CancelCircleIcon />
             </div>
-          </div>
-        )}
-
-        {/* Operational Metrics Cards */}
-        <section className="stats-grid">
-          <div className="stat-card">
-            <span>SHIPMENTS IN QUEUE</span>
-            <strong>{orders.length.toString().padStart(2, '0')}</strong>
-            <small>Active workspace shipments</small>
-          </div>
-          <div className="stat-card">
-            <span>DATA-QUALITY VALIDATED</span>
-            <strong className="green">{readyChecksCount.toString().padStart(2, '0')}</strong>
-            <small>Passed preliminary schema checks</small>
-          </div>
-          <div className="stat-card">
-            <span>NEEDS REMEDIATION</span>
-            <strong className={blockedCount > 0 ? 'red' : ''}>{blockedCount.toString().padStart(2, '0')}</strong>
-            <small>Blocked data or milestone defects</small>
-          </div>
-          <div className="stat-card">
-            <span>PROTECTION READY</span>
-            <strong className="green">{protectionReadyCount.toString().padStart(2, '0')}</strong>
-            <small>Full Seller Protection defense viability</small>
-          </div>
-        </section>
-
-        {/* Queue Control Header */}
-        <section className="queue-header">
-          <div className="queue-title">
-            <div className="eyebrow">SHIPMENT QUEUE</div>
-            <h2>Evidence Verification Queue</h2>
-            <p>Review individual shipments, inspect Seller Protection criteria, or remediate missing evidence.</p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              className="btn-secondary btn-ai"
-              onClick={handleAnalyzeAll}
-              disabled={loading || batchAiLoading || !orders.length}
-            >
-              {batchAiLoading ? 'Analyzing AI…' : 'Scan All AI Evidence ↗'}
-            </button>
-            <button
-              className="btn-primary"
-              onClick={handleValidateAll}
-              disabled={loading || batchValidateLoading || !orders.length}
-            >
-              {batchValidateLoading ? 'Validating…' : 'Run All Data Checks ↗'}
-            </button>
-          </div>
-        </section>
-
-        {error && <div className="findings-box issues" style={{ marginBottom: '20px' }}>{error}</div>}
-
-        {/* Filter and Search Bar */}
-        <div className="filter-bar">
-          <div className="filter-tabs">
-            <button
-              className={`filter-tab ${activeTab === 'all' ? 'active' : ''}`}
-              onClick={() => setActiveTab('all')}
-            >
-              All Shipments <span>{orders.length}</span>
-            </button>
-            <button
-              className={`filter-tab ${activeTab === 'needs-remediation' ? 'active' : ''}`}
-              onClick={() => setActiveTab('needs-remediation')}
-            >
-              Needs Remediation <span>{blockedCount}</span>
-            </button>
-            <button
-              className={`filter-tab ${activeTab === 'protection-ready' ? 'active' : ''}`}
-              onClick={() => setActiveTab('protection-ready')}
-            >
-              Protection Ready <span>{protectionReadyCount}</span>
-            </button>
-            <button
-              className={`filter-tab ${activeTab === 'delivered' ? 'active' : ''}`}
-              onClick={() => setActiveTab('delivered')}
-            >
-              Delivered <span>{orders.filter(o => o.status === 'DELIVERED').length}</span>
-            </button>
-          </div>
-
-          <div className="search-input-wrap">
-            <span className="search-icon">
-              <SearchIcon />
-            </span>
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search by order, txn, carrier..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
+            <h1 className="result-card-heading">Payment not verified</h1>
+            <p className="result-card-sub">
+              We could not confirm a successful payment status. No funds have been taken. Please try again.
+            </p>
+            <div className="result-card-actions">
+              <button className="btn-primary" onClick={() => navigateTo('/checkout')}>
+                Try checkout again
+              </button>
+              <button className="btn-secondary" onClick={() => navigateTo('/')}>
+                Shipment Review
+              </button>
+            </div>
           </div>
         </div>
-
-        {/* Orders Queue Cards */}
-        {loading ? (
-          <div className="order-card" style={{ textAlign: 'center', padding: '40px' }}>
-            Loading shipment queue…
-          </div>
-        ) : filteredOrders.length === 0 ? (
-          <div className="order-card" style={{ textAlign: 'center', padding: '40px' }}>
-            No shipments match the selected filter.
-          </div>
-        ) : (
-          <div className="orders-grid">
-            {filteredOrders.map((order, index) => {
-              const result = results[order.order_id]
-              const status = result?.result
-              const ai = aiResults[order.order_id]
-
-              const scoreClass =
-                ai?.readiness_score >= 85
-                  ? 'high'
-                  : ai?.readiness_score >= 70
-                  ? 'med'
-                  : 'low'
-
-              return (
-                <article className="order-card" key={order.order_id}>
-                  <div className="order-top">
-                    <div className="order-seq">0{index + 1}</div>
-                    <div className="order-meta">
-                      <div className="order-meta-head">
-                        <strong>{order.order_id}</strong>
-                        <small>PayPal Txn: {order.transaction_id}</small>
-                      </div>
-                    </div>
-
-                    <div className="status-badges">
-                      {ai && !ai.loading && !ai.error && (
-                        <span className={`score-chip ${scoreClass}`} title={ai.readiness_label}>
-                          AI Score: {ai.readiness_score}/100
-                        </span>
-                      )}
-
-                      <span
-                        className={
-                          'pill ' +
-                          (status === 'PASS'
-                            ? 'pill-pass'
-                            : status === 'BLOCKED'
-                            ? 'pill-blocked'
-                            : status === 'WARNING'
-                            ? 'pill-warn'
-                            : 'pill-unchecked')
-                        }
-                      >
-                        {result?.loading ? 'CHECKING…' : status || 'NOT CHECKED'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 5-Column Detail Breakdown */}
-                  <div className="details-grid">
-                    <div className="detail-col">
-                      <small>Tracking Number</small>
-                      <strong className={!order.tracking_number ? 'missing' : ''}>
-                        {order.tracking_number || 'Missing Number'}
-                      </strong>
-                    </div>
-                    <div className="detail-col">
-                      <small>Carrier</small>
-                      <strong>
-                        {order.carrier === 'OTHER' ? order.carrier_name_other || 'OTHER' : order.carrier || 'Not provided'}
-                      </strong>
-                    </div>
-                    <div className="detail-col">
-                      <small>Shipment Status</small>
-                      <strong>{order.status}</strong>
-                    </div>
-                    <div className="detail-col">
-                      <small>Order Value</small>
-                      <strong>
-                        {order.amount ? `$${Number(order.amount).toFixed(2)} ${order.currency || 'USD'}` : '—'}
-                      </strong>
-                    </div>
-                    <div className="detail-col">
-                      <small>Destination Address</small>
-                      <strong>{order.shipping_address || '—'}</strong>
-                    </div>
-                  </div>
-
-                  {/* Evidence Snippet */}
-                  {order.evidence_text && (
-                    <div className="evidence-snippet">
-                      <strong>Carrier Tracking Evidence Scan:</strong>
-                      {order.evidence_text}
-                    </div>
-                  )}
-
-                  {/* Findings */}
-                  {result?.issues?.length > 0 && (
-                    <div className="findings-box issues">
-                      <strong>✕ Issues Requiring Resolution:</strong>
-                      {result.issues.map((issue, i) => (
-                        <p key={i}>• {issue.message}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  {result?.warnings?.length > 0 && (
-                    <div className="findings-box warnings">
-                      <strong>! Review Recommended:</strong>
-                      {result.warnings.map((warn, i) => (
-                        <p key={i}>• {warn.message}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  {status === 'PASS' && (
-                    <div className="pass-callout">
-                      ✓ Preliminary data-quality checks passed. Evidence ready for PayPal Seller Protection inspection.
-                    </div>
-                  )}
-
-                  {/* Card Footer Actions */}
-                  <div className="card-footer-row">
-                    <span>
-                      {status === 'PASS'
-                        ? 'Data schema verified · Safe for preview'
-                        : status === 'BLOCKED'
-                        ? 'Resolve issues before proceeding'
-                        : 'Pre-submission check'}
-                    </span>
-                    <div className="card-footer-actions">
-                      <button
-                        className="btn-secondary"
-                        onClick={() => validate(order)}
-                        disabled={result?.loading}
-                      >
-                        {result?.loading ? 'Checking…' : 'Validate →'}
-                      </button>
-                      <button
-                        className="btn-secondary btn-ai"
-                        onClick={() => openInspector(order)}
-                      >
-                        Inspect & Remediate ↗
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Footer */}
-        <footer>
-          <div>
-            <strong>SHIPPROOF AI</strong> · Pre-Submission Shipment Evidence Control
-          </div>
-          <p>
-            Deterministic checks and AI analysis assist in evidence quality; official dispute outcomes are determined by PayPal.
-          </p>
-        </footer>
       </main>
+    )
+  }
 
-      {/* Drawer: AI Evidence Inspector & Interactive Remediation Sandbox */}
-      {selectedOrder && (
-        <div className="drawer-backdrop" onClick={() => setSelectedOrder(null)}>
+  // ─── Checkout Cancel View ─────────────────────────────────────────────────
+  const CheckoutCancelView = () => (
+    <main className="main" id="main-content">
+      <header className="topbar">
+        <div className="breadcrumb">
+          <span>Workspace</span>
+          <span>/</span>
+          <span>New Checkout</span>
+          <span>/</span>
+          <strong>Payment Cancelled</strong>
+        </div>
+      </header>
+      <div className="result-card-wrap">
+        <div className="result-card result-card--cancel">
+          <div className="result-card-icon cancel" aria-hidden="true">
+            <CancelCircleIcon />
+          </div>
+          <div className="result-status-badge pill pill-warn">CANCELLED</div>
+          <h1 className="result-card-heading">Payment not completed</h1>
+          <p className="result-card-sub">
+            You returned from PayPal without completing the checkout. No charges were made and your order has not been processed.
+          </p>
+          <div className="result-card-actions">
+            <button className="btn-primary" onClick={() => navigateTo('/checkout')}>
+              Return to checkout
+            </button>
+            <button className="btn-secondary" onClick={() => navigateTo('/')}>
+              View Shipment Review
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  )
+
+  // ─── Shipment Review (dashboard) ──────────────────────────────────────────
+  const ShipmentReviewMain = () => (
+    <main className="main" id="main-content">
+      {/* Topbar */}
+      <header className="topbar">
+        <div className="breadcrumb">
+          <span>Workspace</span>
+          <span>/</span>
+          <strong>Shipment Evidence Queue</strong>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="pill-status"
+            onClick={testPayPalConnection}
+            disabled={oauthTesting}
+            title="Click to test live PayPal Sandbox OAuth 2.0 authentication"
+          >
+            <span className={`pulse ${oauthVerified ? '' : 'warn'}`} aria-hidden="true"></span>
+            <span>
+              {oauthTesting
+                ? 'Testing Sandbox Auth…'
+                : oauthVerified
+                ? oauthMessage
+                : paypal.configured
+                ? 'PayPal Sandbox: Authenticate ↗'
+                : 'PayPal Sandbox: Not Configured'}
+            </span>
+          </button>
+          <div className="pill-status">
+            <span style={{ color: '#275619', fontWeight: 700 }}>Write Gate: Locked</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero Banner */}
+      <section className="hero" aria-label="ShipProof AI overview">
+        <div className="hero-copy">
+          <div className="eyebrow">
+            <span aria-hidden="true">●</span> PRE-SUBMISSION SHIPMENT EVIDENCE &amp; SELLER PROTECTION
+          </div>
+          <h1>
+            Proof before
+            <br />
+            <span>you submit.</span>
+          </h1>
+          <p>
+            Catch missing tracking numbers, invalid transit chronology, carrier mismatches, and $750+ high-value signature
+            omissions before transmitting shipping evidence to PayPal Sandbox.
+          </p>
+        </div>
+
+        <div className="hero-art-card" aria-hidden="true">
+          <div className="art-shield">
+            <div className="shield-icon">
+              <ShieldIcon />
+            </div>
+            <div>
+              <strong>Seller Protection</strong>
+              <small>Evidence Pre-Screening</small>
+            </div>
+          </div>
+          <div className="art-lines">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div className="art-tag">AUDITABLE RULE-BASED NLP</div>
+        </div>
+      </section>
+
+      {/* Architecture Disclosure */}
+      <section className="architecture-banner">
+        <div className="arch-info">
+          <div className="arch-badge">AUDITABLE ENGINE</div>
+          <div className="arch-text">
+            <strong>Deterministic NLP &amp; PayPal Policy Rules Engine</strong>
+            <p>
+              Zero-hallucination compliance architecture: evaluates carrier tracking regexes, milestone timelines, destination matching, and PayPal's $750+ signature threshold.
+            </p>
+          </div>
+        </div>
+        <button
+          className="arch-criteria-toggle"
+          onClick={() => setShowArchDetails(prev => !prev)}
+          aria-expanded={showArchDetails}
+        >
+          {showArchDetails ? 'Hide criteria ▲' : 'View 5 core criteria ▼'}
+        </button>
+      </section>
+
+      {showArchDetails && (
+        <div className="arch-details-drawer">
+          <strong>Evaluated Seller Protection &amp; Data Quality Checks:</strong>
+          <div className="arch-grid">
+            <div className="arch-card">
+              <strong>1. Carrier Pattern Verification</strong>
+              Detects format consistency for UPS (1Z), FedEx, USPS (9x), DHL, and warns on carrier mismatch.
+            </div>
+            <div className="arch-card">
+              <strong>2. High-Value $750+ Signature</strong>
+              Checks if orders ≥ $750 USD include verified signature confirmation required by PayPal.
+            </div>
+            <div className="arch-card">
+              <strong>3. Transit Chronology</strong>
+              Verifies dispatch and delivery milestones (disallows delivery prior to shipment or in the future).
+            </div>
+            <div className="arch-card">
+              <strong>4. Proof of Delivery / Destination</strong>
+              Matches recipient city/postal-code tokens against carrier delivery scan notes.
+            </div>
+            <div className="arch-card">
+              <strong>5. Exception Extraction</strong>
+              Flags negative signals: returned to sender, damaged in transit, undeliverable, or failed delivery.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Operational Metrics */}
+      <section className="stats-grid" aria-label="Operational metrics">
+        <div className="stat-card">
+          <span>SHIPMENTS IN QUEUE</span>
+          <strong>{orders.length.toString().padStart(2, '0')}</strong>
+          <small>Active workspace shipments</small>
+        </div>
+        <div className="stat-card">
+          <span>DATA-QUALITY VALIDATED</span>
+          <strong className="green">{readyChecksCount.toString().padStart(2, '0')}</strong>
+          <small>Passed preliminary schema checks</small>
+        </div>
+        <div className="stat-card">
+          <span>NEEDS REMEDIATION</span>
+          <strong className={blockedCount > 0 ? 'red' : ''}>{blockedCount.toString().padStart(2, '0')}</strong>
+          <small>Blocked data or milestone defects</small>
+        </div>
+        <div className="stat-card">
+          <span>PROTECTION READY</span>
+          <strong className="green">{protectionReadyCount.toString().padStart(2, '0')}</strong>
+          <small>Full Seller Protection defense viability</small>
+        </div>
+      </section>
+
+      {/* Queue Control Header */}
+      <section className="queue-header">
+        <div className="queue-title">
+          <div className="eyebrow">SHIPMENT QUEUE</div>
+          <h2>Evidence Verification Queue</h2>
+          <p>Review individual shipments, inspect Seller Protection criteria, or remediate missing evidence.</p>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            className="btn-secondary btn-ai"
+            onClick={handleAnalyzeAll}
+            disabled={loading || batchAiLoading || !orders.length}
+          >
+            {batchAiLoading ? 'Analyzing AI…' : 'Scan All AI Evidence ↗'}
+          </button>
+          <button
+            className="btn-primary"
+            onClick={handleValidateAll}
+            disabled={loading || batchValidateLoading || !orders.length}
+          >
+            {batchValidateLoading ? 'Validating…' : 'Run All Data Checks ↗'}
+          </button>
+        </div>
+      </section>
+
+      {error && (
+        <div className="findings-box issues" role="alert" style={{ marginBottom: '20px' }}>
+          {error}
+        </div>
+      )}
+
+      {/* Filter Bar */}
+      <div className="filter-bar" role="toolbar" aria-label="Filter shipments">
+        <div className="filter-tabs" role="tablist">
+          <button
+            role="tab"
+            aria-selected={activeTab === 'all'}
+            className={`filter-tab ${activeTab === 'all' ? 'active' : ''}`}
+            onClick={() => setActiveTab('all')}
+          >
+            All Shipments <span>{orders.length}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'needs-remediation'}
+            className={`filter-tab ${activeTab === 'needs-remediation' ? 'active' : ''}`}
+            onClick={() => setActiveTab('needs-remediation')}
+          >
+            Needs Remediation <span>{blockedCount}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'protection-ready'}
+            className={`filter-tab ${activeTab === 'protection-ready' ? 'active' : ''}`}
+            onClick={() => setActiveTab('protection-ready')}
+          >
+            Protection Ready <span>{protectionReadyCount}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'delivered'}
+            className={`filter-tab ${activeTab === 'delivered' ? 'active' : ''}`}
+            onClick={() => setActiveTab('delivered')}
+          >
+            Delivered <span>{orders.filter(o => o.status === 'DELIVERED').length}</span>
+          </button>
+        </div>
+        <div className="search-input-wrap">
+          <span className="search-icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            className="search-input"
+            placeholder="Search by order, txn, carrier…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            aria-label="Search shipments"
+          />
+        </div>
+      </div>
+
+      {/* Orders Queue */}
+      {loading ? (
+        <div className="order-card" style={{ textAlign: 'center', padding: '40px' }} role="status" aria-live="polite">
+          Loading shipment queue…
+        </div>
+      ) : filteredOrders.length === 0 ? (
+        <div className="order-card" style={{ textAlign: 'center', padding: '40px' }} role="status">
+          No shipments match the selected filter.
+        </div>
+      ) : (
+        <div className="orders-grid">
+          {filteredOrders.map((order, index) => {
+            const result = results[order.order_id]
+            const status = result?.result
+            const ai = aiResults[order.order_id]
+            const scoreClass = ai?.readiness_score >= 85 ? 'high' : ai?.readiness_score >= 70 ? 'med' : 'low'
+
+            return (
+              <article className="order-card" key={order.order_id}>
+                <div className="order-top">
+                  <div className="order-seq" aria-hidden="true">0{index + 1}</div>
+                  <div className="order-meta">
+                    <div className="order-meta-head">
+                      <strong>{order.order_id}</strong>
+                      <small>PayPal Txn: {order.transaction_id}</small>
+                    </div>
+                  </div>
+                  <div className="status-badges">
+                    {ai && !ai.loading && !ai.error && (
+                      <span className={`score-chip ${scoreClass}`} title={ai.readiness_label}>
+                        AI Score: {ai.readiness_score}/100
+                      </span>
+                    )}
+                    <span
+                      className={
+                        'pill ' +
+                        (status === 'PASS'
+                          ? 'pill-pass'
+                          : status === 'BLOCKED'
+                          ? 'pill-blocked'
+                          : status === 'WARNING'
+                          ? 'pill-warn'
+                          : 'pill-unchecked')
+                      }
+                    >
+                      {result?.loading ? 'CHECKING…' : status || 'NOT CHECKED'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="details-grid">
+                  <div className="detail-col">
+                    <small>Tracking Number</small>
+                    <strong className={!order.tracking_number ? 'missing' : ''}>
+                      {order.tracking_number || 'Missing Number'}
+                    </strong>
+                  </div>
+                  <div className="detail-col">
+                    <small>Carrier</small>
+                    <strong>
+                      {order.carrier === 'OTHER' ? order.carrier_name_other || 'OTHER' : order.carrier || 'Not provided'}
+                    </strong>
+                  </div>
+                  <div className="detail-col">
+                    <small>Shipment Status</small>
+                    <strong>{order.status}</strong>
+                  </div>
+                  <div className="detail-col">
+                    <small>Order Value</small>
+                    <strong>
+                      {order.amount ? `$${Number(order.amount).toFixed(2)} ${order.currency || 'USD'}` : '—'}
+                    </strong>
+                  </div>
+                  <div className="detail-col">
+                    <small>Destination Address</small>
+                    <strong>{order.shipping_address || '—'}</strong>
+                  </div>
+                </div>
+
+                {order.evidence_text && (
+                  <div className="evidence-snippet">
+                    <strong>Carrier Tracking Evidence Scan:</strong>
+                    {order.evidence_text}
+                  </div>
+                )}
+
+                {result?.issues?.length > 0 && (
+                  <div className="findings-box issues">
+                    <strong>✕ Issues Requiring Resolution:</strong>
+                    {result.issues.map((issue, i) => (
+                      <p key={i}>• {issue.message}</p>
+                    ))}
+                  </div>
+                )}
+
+                {result?.warnings?.length > 0 && (
+                  <div className="findings-box warnings">
+                    <strong>! Review Recommended:</strong>
+                    {result.warnings.map((warn, i) => (
+                      <p key={i}>• {warn.message}</p>
+                    ))}
+                  </div>
+                )}
+
+                {status === 'PASS' && (
+                  <div className="pass-callout">
+                    ✓ Preliminary data-quality checks passed. Evidence ready for PayPal Seller Protection inspection.
+                  </div>
+                )}
+
+                <div className="card-footer-row">
+                  <span>
+                    {status === 'PASS'
+                      ? 'Data schema verified · Safe for preview'
+                      : status === 'BLOCKED'
+                      ? 'Resolve issues before proceeding'
+                      : 'Pre-submission check'}
+                  </span>
+                  <div className="card-footer-actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => validate(order)}
+                      disabled={result?.loading}
+                    >
+                      {result?.loading ? 'Checking…' : 'Validate →'}
+                    </button>
+                    <button
+                      className="btn-secondary btn-ai"
+                      onClick={() => openInspector(order)}
+                    >
+                      Inspect &amp; Remediate ↗
+                    </button>
+                  </div>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      <footer>
+        <div>
+          <strong>SHIPPROOF AI</strong> · Pre-Submission Shipment Evidence Control
+        </div>
+        <p>
+          Deterministic checks and AI analysis assist in evidence quality; official dispute outcomes are determined by PayPal.
+        </p>
+      </footer>
+    </main>
+  )
+
+  // ─── Route dispatcher ─────────────────────────────────────────────────────
+  const renderMain = () => {
+    if (currentPath === '/checkout') return <CheckoutCatalogView />
+    if (currentPath === '/checkout/return') return <CheckoutReturnView />
+    if (currentPath === '/checkout/cancel') return <CheckoutCancelView />
+    return <ShipmentReviewMain />
+  }
+
+  return (
+    <div className="app-shell">
+      <Sidebar />
+
+      {renderMain()}
+
+      {/* Drawer: AI Evidence Inspector — only on dashboard */}
+      {selectedOrder && isDashboard && (
+        <div
+          className="drawer-backdrop"
+          onClick={() => setSelectedOrder(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Evidence and Protection Inspector"
+        >
           <div className="drawer-pane" onClick={e => e.stopPropagation()}>
             <div className="drawer-top">
               <div className="drawer-title-wrap">
-                <h3>Evidence & Protection Inspector</h3>
+                <h3>Evidence &amp; Protection Inspector</h3>
                 <small>
                   Order: <strong>{selectedOrder.order_id}</strong> · Transaction: {selectedOrder.transaction_id}
                 </small>
@@ -699,7 +1305,7 @@ export default function App() {
               <button
                 className="btn-close"
                 onClick={() => setSelectedOrder(null)}
-                aria-label="Close"
+                aria-label="Close inspector"
               >
                 ✕
               </button>
@@ -707,14 +1313,14 @@ export default function App() {
 
             <div className="drawer-content">
               {inspectLoading || currentAiResult?.loading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}>
+                <div style={{ textAlign: 'center', padding: '40px' }} role="status" aria-live="polite">
                   Evaluating shipment evidence against PayPal Seller Protection criteria…
                 </div>
               ) : currentAiResult?.error ? (
-                <div className="findings-box issues">{currentAiResult.error}</div>
+                <div className="findings-box issues" role="alert">{currentAiResult.error}</div>
               ) : currentAiResult ? (
                 <>
-                  {/* Score Hero Meter */}
+                  {/* Score Meter */}
                   <div className="score-hero-box">
                     <div className="score-hero-info">
                       <div className="eyebrow" style={{ color: '#2b5220' }}>
@@ -728,19 +1334,16 @@ export default function App() {
                     <div
                       className={
                         'score-meter ' +
-                        (currentAiResult.readiness_score >= 85
-                          ? 'high'
-                          : currentAiResult.readiness_score >= 70
-                          ? 'med'
-                          : 'low')
+                        (currentAiResult.readiness_score >= 85 ? 'high' : currentAiResult.readiness_score >= 70 ? 'med' : 'low')
                       }
+                      aria-label={`Readiness score: ${currentAiResult.readiness_score} out of 100`}
                     >
                       {currentAiResult.readiness_score}
                     </div>
                   </div>
 
                   {currentValidation && currentValidation.result === 'BLOCKED' && (
-                    <div className="findings-box issues" style={{ margin: 0 }}>
+                    <div className="findings-box issues" style={{ margin: 0 }} role="alert">
                       <strong>Data Quality Issues (Blocks PayPal Add Tracking Submission):</strong>
                       {currentValidation.issues?.map((iss, i) => (
                         <p key={i}>• {iss.message}</p>
@@ -748,7 +1351,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* PayPal Seller Protection Matrix */}
+                  {/* Protection Matrix */}
                   <div>
                     <div className="nav-section" style={{ color: 'var(--slate)', margin: '0 0 8px' }}>
                       PayPal Seller Protection Policy Matrix
@@ -756,17 +1359,8 @@ export default function App() {
                     <div className="matrix-container" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
                       <div className="matrix-item">
                         <small>INR DEFENSE READINESS</small>
-                        <span
-                          className={
-                            'matrix-status-tag ' +
-                            (currentAiResult.seller_protection.item_not_received_eligible
-                              ? 'pill-pass'
-                              : 'pill-blocked')
-                          }
-                        >
-                          {currentAiResult.seller_protection.item_not_received_eligible
-                            ? 'DEFENSE SUPPORTED'
-                            : 'EVIDENCE INCOMPLETE'}
+                        <span className={'matrix-status-tag ' + (currentAiResult.seller_protection.item_not_received_eligible ? 'pill-pass' : 'pill-blocked')}>
+                          {currentAiResult.seller_protection.item_not_received_eligible ? 'DEFENSE SUPPORTED' : 'EVIDENCE INCOMPLETE'}
                         </span>
                         <p>
                           {currentAiResult.seller_protection.item_not_received_eligible
@@ -777,17 +1371,8 @@ export default function App() {
 
                       <div className="matrix-item">
                         <small>UNAUTHORIZED TXN</small>
-                        <span
-                          className={
-                            'matrix-status-tag ' +
-                            (currentAiResult.seller_protection.unauthorized_transaction_eligible
-                              ? 'pill-pass'
-                              : 'pill-blocked')
-                          }
-                        >
-                          {currentAiResult.seller_protection.unauthorized_transaction_eligible
-                            ? 'DISPATCH PROVEN'
-                            : 'INCOMPLETE PROOF'}
+                        <span className={'matrix-status-tag ' + (currentAiResult.seller_protection.unauthorized_transaction_eligible ? 'pill-pass' : 'pill-blocked')}>
+                          {currentAiResult.seller_protection.unauthorized_transaction_eligible ? 'DISPATCH PROVEN' : 'INCOMPLETE PROOF'}
                         </span>
                         <p>Proof of shipment dispatch date and carrier tracking documentation.</p>
                       </div>
@@ -857,7 +1442,7 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Interactive Remediation Sandbox */}
+                  {/* Remediation Sandbox */}
                   <div className="remediation-box">
                     <h4>Interactive Evidence Remediation Sandbox</h4>
                     <p>
@@ -866,8 +1451,9 @@ export default function App() {
 
                     <div className="interactive-form-grid">
                       <div className="form-group">
-                        <label>Tracking Number</label>
+                        <label htmlFor="rem-tracking">Tracking Number</label>
                         <input
+                          id="rem-tracking"
                           type="text"
                           className="form-control"
                           value={remediationForm.tracking_number}
@@ -877,8 +1463,9 @@ export default function App() {
                       </div>
 
                       <div className="form-group">
-                        <label>Carrier</label>
+                        <label htmlFor="rem-carrier">Carrier</label>
                         <select
+                          id="rem-carrier"
                           className="form-control"
                           value={remediationForm.carrier}
                           onChange={e => setRemediationForm({ ...remediationForm, carrier: e.target.value })}
@@ -893,8 +1480,9 @@ export default function App() {
 
                       {remediationForm.carrier === 'OTHER' && (
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Custom Carrier Name (Required by PayPal for OTHER)</label>
+                          <label htmlFor="rem-carrier-name">Custom Carrier Name (Required by PayPal for OTHER)</label>
                           <input
+                            id="rem-carrier-name"
                             type="text"
                             className="form-control"
                             value={remediationForm.carrier_name_other || ''}
@@ -905,8 +1493,9 @@ export default function App() {
                       )}
 
                       <div className="form-group">
-                        <label>Order Amount ($ USD)</label>
+                        <label htmlFor="rem-amount">Order Amount ($ USD)</label>
                         <input
+                          id="rem-amount"
                           type="number"
                           className="form-control"
                           value={remediationForm.amount}
@@ -932,8 +1521,9 @@ export default function App() {
                     </div>
 
                     <div className="form-group" style={{ marginTop: '12px' }}>
-                      <label>Official Carrier Scan Evidence Notes / ePOD Record</label>
+                      <label htmlFor="rem-evidence">Official Carrier Scan Evidence Notes / ePOD Record</label>
                       <textarea
+                        id="rem-evidence"
                         className="form-control"
                         rows="3"
                         value={remediationForm.evidence_text}
@@ -956,40 +1546,34 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* AI Strengths & Risk Insights */}
+                  {/* AI Insights */}
                   <div>
                     <div className="nav-section" style={{ color: '#314738', margin: '0 0 8px' }}>
-                      Audit Findings & Recommendations
+                      Audit Findings &amp; Recommendations
                     </div>
                     <div className="insights-wrap">
                       {currentAiResult.strengths?.map((item, idx) => (
                         <div className="insight-row strength" key={`s-${idx}`}>
-                          <span className="insight-icon">
-                            <CheckIcon />
-                          </span>
+                          <span className="insight-icon"><CheckIcon /></span>
                           <span>{item}</span>
                         </div>
                       ))}
                       {currentAiResult.risk_factors?.map((item, idx) => (
                         <div className="insight-row risk" key={`r-${idx}`}>
-                          <span className="insight-icon">
-                            <AlertIcon />
-                          </span>
+                          <span className="insight-icon"><AlertIcon /></span>
                           <span>{item}</span>
                         </div>
                       ))}
                       {currentAiResult.recommendations?.map((item, idx) => (
                         <div className="insight-row recom" key={`rec-${idx}`}>
-                          <span className="insight-icon">
-                            <ArrowIcon />
-                          </span>
+                          <span className="insight-icon"><ArrowIcon /></span>
                           <span>{item}</span>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Formatted PayPal Add Tracking API Payload Preview */}
+                  {/* Payload Preview */}
                   <div className="code-preview-card">
                     <div className="code-header">
                       <span>PAYPAL SANDBOX ADD TRACKING PREVIEW (POST /v1/shipping/trackers-batch)</span>
@@ -997,19 +1581,16 @@ export default function App() {
                         className="btn-secondary"
                         style={{ padding: '4px 8px', fontSize: '10px' }}
                         onClick={() => copyPayload(currentAiResult.paypal_payload_preview?.trackers)}
+                        aria-label={copiedPayload ? 'Copied to clipboard' : 'Copy JSON payload to clipboard'}
                       >
                         {copiedPayload ? 'Copied ✓' : 'Copy JSON'}
                       </button>
                     </div>
-
                     <pre className="code-pre">
                       {JSON.stringify(currentAiResult.paypal_payload_preview?.trackers, null, 2)}
                     </pre>
-
                     <div className="safety-gate-notice">
-                      <span style={{ display: 'grid', placeItems: 'center' }}>
-                        <LockIcon />
-                      </span>
+                      <span style={{ display: 'grid', placeItems: 'center' }}><LockIcon /></span>
                       <span>
                         <strong>Safety Gate Active:</strong> Submissions are locked locally (<code>PAYPAL_TRACKING_SUBMISSION_ENABLED=false</code>). No tracking records will be sent to PayPal.
                       </span>
