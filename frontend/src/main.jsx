@@ -1993,6 +1993,9 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     setInspectionResult(null)
     setUploadError('')
     setProcessingStatus('')
+    setManifest(null)
+    setError('')
+    setLoading(true)
     setActiveShipmentId(orderId)
   }
 
@@ -2009,6 +2012,9 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
       setInspectionResult(null)
       setUploadError('')
       setProcessingStatus('')
+      setManifest(null)
+      setError('')
+      setLoading(true)
     }
 
     let ignore = false
@@ -2102,16 +2108,25 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
   }
 
   async function handleSubmitInspection() {
+    if (loading) {
+      setUploadError('Please wait for the shipment manifest to finish loading.')
+      return
+    }
     if (!manifest || manifest.status !== 'FINALIZED') {
       setUploadError('A finalized manifest is required before submitting for packing inspection.')
+      return
+    }
+    // Integrity check: Ensure manifest belongs to selected shipment
+    if (!manifest.shipment_order_id || manifest.shipment_order_id !== selectedShipment.order_id) {
+      setUploadError(`Manifest shipment mismatch: manifest belongs to ${manifest.shipment_order_id || 'unknown'}, but active shipment is ${selectedShipment.order_id}.`)
       return
     }
     if (selectedPhotos.length === 0) {
       setUploadError('Please select at least 1 photograph of the packing station.')
       return
     }
-    // Integrity check: Ensure photos belong to current shipment
-    if (photoShipmentId && photoShipmentId !== selectedShipment.order_id) {
+    // Fail-closed photo shipment check: must strictly match current shipment whenever photos are present
+    if (!photoShipmentId || photoShipmentId !== selectedShipment.order_id) {
       setUploadError('The selected photographs do not match the current shipment. Please re-select photos.')
       return
     }
@@ -2150,7 +2165,12 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     }
   }
 
-  const isFinalized = manifest?.status === 'FINALIZED'
+  const isManifestAssociated = Boolean(
+    manifest &&
+    manifest.shipment_order_id === selectedShipment.order_id
+  )
+  const isFinalized = isManifestAssociated && manifest?.status === 'FINALIZED'
+  const canSelectPhotos = !loading && isFinalized && !uploading
 
   return (
     <main className="main" id="main-content">
@@ -2350,10 +2370,10 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                       accept="image/jpeg,image/png,image/webp"
                       style={{ display: 'none' }}
                       onChange={handlePhotoSelect}
-                      disabled={uploading || selectedPhotos.length >= 5}
+                      disabled={!canSelectPhotos || selectedPhotos.length >= 5}
                     />
 
-                    {selectedPhotos.length < 5 && !uploading && (
+                    {selectedPhotos.length < 5 && canSelectPhotos && (
                       <label htmlFor="packing-photo-input" className="photo-dropzone">
                         <div className="dropzone-icon">
                           <CameraIcon />
@@ -2425,7 +2445,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                         type="button"
                         className="btn-primary"
                         onClick={handleSubmitInspection}
-                        disabled={uploading || selectedPhotos.length === 0}
+                        disabled={loading || !canSelectPhotos || uploading || selectedPhotos.length === 0}
                       >
                         {uploading
                           ? 'Processing AI Inspection…'
