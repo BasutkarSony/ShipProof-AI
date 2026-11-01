@@ -2,6 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import './style.css'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
 // ─── ShipProof AI — unified shell across all routes ───────────────────────────
 // Routes:
 //   /                    Shipment Evidence Review Dashboard
@@ -246,7 +248,7 @@ export default function App() {
     const handleRouteChange = () => setCurrentPath(window.location.pathname)
     window.addEventListener('popstate', handleRouteChange)
 
-    fetch('http://127.0.0.1:8000/api/orders')
+    fetch(`${API_BASE}/api/orders`)
       .then(r => {
         if (!r.ok) throw new Error('Could not load shipments')
         return r.json()
@@ -258,10 +260,10 @@ export default function App() {
           setActiveShipmentId(ords[0].order_id)
         }
       })
-      .catch(() => setError('Cannot connect to the backend. Make sure it is running on port 8000.'))
+      .catch(() => setError('Cannot connect to the backend. Make sure it is running.'))
       .finally(() => setLoading(false))
 
-    fetch('http://127.0.0.1:8000/api/paypal/status')
+    fetch(`${API_BASE}/api/paypal/status`)
       .then(r => {
         if (!r.ok) throw new Error('Could not load PayPal status')
         return r.json()
@@ -286,7 +288,7 @@ export default function App() {
   async function validate(order) {
     setResults(old => ({ ...old, [order.order_id]: { loading: true } }))
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/validate', {
+      const response = await fetch(`${API_BASE}/api/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(order)
@@ -305,7 +307,7 @@ export default function App() {
   async function analyzeOrderEvidence(order) {
     setAiResults(old => ({ ...old, [order.order_id]: { loading: true } }))
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/analyze-evidence', {
+      const response = await fetch(`${API_BASE}/api/analyze-evidence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(order)
@@ -340,7 +342,7 @@ export default function App() {
   async function testPayPalConnection() {
     setOauthTesting(true)
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/paypal/verify-connection', { method: 'POST' })
+      const res = await fetch(`${API_BASE}/api/paypal/verify-connection`, { method: 'POST' })
       const data = await res.json()
       if (res.ok && data.success) {
         setOauthVerified(true)
@@ -457,12 +459,12 @@ export default function App() {
     setCatalogLoading(true)
     setCatalogError('')
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/catalog')
+      const res = await fetch(`${API_BASE}/api/catalog`)
       if (!res.ok) throw new Error('Could not load product catalog')
       const data = await res.json()
       setCatalog(data.products || [])
     } catch {
-      setCatalogError('Could not load product catalog. Make sure the backend is running on port 8000.')
+      setCatalogError('Could not load product catalog. Make sure the backend is running.')
     } finally {
       setCatalogLoading(false)
     }
@@ -502,7 +504,7 @@ export default function App() {
     setCheckoutLoading(true)
     setCheckoutError('')
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/checkout/orders', {
+      const res = await fetch(`${API_BASE}/api/checkout/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items, currency: 'USD' })
@@ -538,7 +540,7 @@ export default function App() {
     setCaptureLoading(true)
     setCaptureError('')
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/checkout/orders/${orderId}/capture`, {
+      const res = await fetch(`${API_BASE}/api/checkout/orders/${orderId}/capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -1434,7 +1436,7 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
       setError('')
       setSaveSuccess('')
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/shipments/${selectedShipment.order_id}/manifest`)
+        const res = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/manifest`)
         if (ignore) return
         if (res.status === 404) {
           setManifest(null)
@@ -1501,30 +1503,50 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
     setError('')
     setSaveSuccess('')
 
-    // Basic validation
+    // Strict validation
     for (let i = 0; i < draftItems.length; i++) {
       const it = draftItems[i]
       if (!it.description.trim()) {
         setError(`Item #${i + 1}: Description is required.`)
         return
       }
-      const qty = parseInt(it.expected_qty, 10)
-      if (isNaN(qty) || qty <= 0) {
-        setError(`Item #${i + 1}: Expected quantity must be a positive integer.`)
+
+      // Quantity validation using Number.isSafeInteger to reject fractional, NaN, zero, and negative
+      const rawQty = it.expected_qty
+      if (typeof rawQty === 'string' && rawQty.trim() === '') {
+        setError(`Item #${i + 1}: Expected quantity is required.`)
         return
+      }
+      const numQty = Number(rawQty)
+      if (!Number.isSafeInteger(numQty) || numQty <= 0) {
+        setError(`Item #${i + 1}: Expected quantity must be a positive integer (received "${rawQty}").`)
+        return
+      }
+
+      // Unit value validation: finite, non-negative number before converting to cents
+      if (it.unit_value !== '' && it.unit_value !== null && it.unit_value !== undefined) {
+        const valStr = String(it.unit_value).trim()
+        if (valStr !== '') {
+          const numVal = Number(valStr)
+          if (!Number.isFinite(numVal) || numVal < 0) {
+            setError(`Item #${i + 1}: Unit value must be a finite, non-negative number (received "${it.unit_value}").`)
+            return
+          }
+        }
       }
     }
 
     const payloadItems = draftItems.map(it => {
-      const parsedQty = parseInt(it.expected_qty, 10)
-      const parsedUnitValue = it.unit_value !== '' && !isNaN(parseFloat(it.unit_value))
-        ? Math.round(parseFloat(it.unit_value) * 100)
+      const numQty = Number(it.expected_qty)
+      const valStr = it.unit_value !== '' && it.unit_value !== null && it.unit_value !== undefined ? String(it.unit_value).trim() : ''
+      const parsedUnitValue = valStr !== '' && Number.isFinite(Number(valStr))
+        ? Math.round(Number(valStr) * 100)
         : null
 
       return {
         sku: it.sku?.trim() || null,
         description: it.description.trim(),
-        expected_qty: parsedQty,
+        expected_qty: numQty,
         unit_value_cents: parsedUnitValue,
         fragile: Boolean(it.fragile)
       }
@@ -1540,14 +1562,14 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
       let res
       if (manifest && manifest.id && manifest.status === 'DRAFT') {
         // Update existing DRAFT
-        res = await fetch(`http://127.0.0.1:8000/api/manifests/${manifest.id}`, {
+        res = await fetch(`${API_BASE}/api/manifests/${manifest.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         })
       } else {
         // Create initial manifest for this shipment
-        res = await fetch(`http://127.0.0.1:8000/api/shipments/${selectedShipment.order_id}/manifest`, {
+        res = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/manifest`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1575,7 +1597,7 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
     setSaveSuccess('')
     setFinalizeLoading(true)
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/manifests/${manifest.id}/finalize`, {
+      const res = await fetch(`${API_BASE}/api/manifests/${manifest.id}/finalize`, {
         method: 'POST'
       })
       const data = await res.json()
@@ -1718,7 +1740,7 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
                 <div className="items-card-header">
                   <div>
                     <h3>Declared Manifest Items</h3>
-                    <p>Enter the SKUs, item descriptions, expected packaging quantities, and declared fragile status.</p>
+                    <p>Enter the SKUs, item descriptions, expected shipment quantities, and declared fragile status.</p>
                   </div>
                   <div className="items-header-stats">
                     <span className="stat-pill">Items: {draftItems.length}</span>
@@ -1954,7 +1976,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
       setUploadError('')
       setInspectionResult(null)
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/shipments/${selectedShipment.order_id}/manifest`)
+        const res = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/manifest`)
         if (ignore) return
         if (res.status === 404) {
           setManifest(null)
@@ -2054,7 +2076,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
 
     try {
       setProcessingStatus('analyzing')
-      const res = await fetch(`http://127.0.0.1:8000/api/manifests/${manifest.id}/inspections`, {
+      const res = await fetch(`${API_BASE}/api/manifests/${manifest.id}/inspections`, {
         method: 'POST',
         body: formData
       })
@@ -2398,7 +2420,7 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
       setInspectionDetail(null)
 
       try {
-        const manRes = await fetch(`http://127.0.0.1:8000/api/shipments/${selectedShipment.order_id}/manifest`)
+        const manRes = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/manifest`)
         if (ignore) return
         if (manRes.status === 404) {
           setManifest(null)
@@ -2415,7 +2437,7 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
         setManifest(manData)
 
         // Fetch all inspections for this manifest
-        const inspRes = await fetch(`http://127.0.0.1:8000/api/manifests/${manData.id}/inspections`)
+        const inspRes = await fetch(`${API_BASE}/api/manifests/${manData.id}/inspections`)
         if (ignore) return
         if (!inspRes.ok) {
           const inspErr = await inspRes.json().catch(() => ({}))
@@ -2453,7 +2475,7 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
       }
 
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/inspections/${activeInspectionId}`)
+        const res = await fetch(`${API_BASE}/api/inspections/${activeInspectionId}`)
         if (ignore) return
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
@@ -2671,8 +2693,8 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
                       <div className="manifest-items-card">
                         <div className="items-card-header">
                           <div>
-                            <h3>Expected vs. Observed Packaging Audit</h3>
-                            <p>Actual Gemini vision observations matched against declared items in the manifest fingerprint.</p>
+                            <h3>Expected vs. Observed Shipment Goods Audit</h3>
+                            <p>Actual Gemini vision observations matched against declared goods in the manifest fingerprint.</p>
                           </div>
                           <span className="stat-pill">{itemChecks.length} Items Checked</span>
                         </div>
