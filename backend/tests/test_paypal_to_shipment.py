@@ -247,7 +247,76 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         self.assertIsNone(shipment["shipped_date"])
         self.assertEqual(shipment["carrier_name_other"], "UNASSIGNED")
 
-        # 7. Collision: Another order trying to use the same capture ID raises error
+        # 7. Valid retry returns existing shipment
+        retried = store.create_shipment_for_order(
+            checkout_order_id=order["id"],
+            paypal_order_id="PP-1",
+            paypal_capture_id="CAP-1",
+            amount="12.99",
+            currency="USD",
+        )
+        self.assertEqual(retried["id"], shipment["id"])
+
+        # 8. Retry with incorrect PayPal order ID is rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-INCORRECT-RETRY",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("order ID mismatch", str(ctx.exception))
+
+        # 9. Retry with incorrect PayPal capture ID is rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-INCORRECT-RETRY",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("capture ID mismatch", str(ctx.exception))
+
+        # 10. Retry with incorrect amount is rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="50.00",
+                currency="USD",
+            )
+        self.assertIn("Amount mismatch", str(ctx.exception))
+
+        # 11. Retry with incorrect currency is rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="GBP",
+            )
+        self.assertIn("Currency mismatch", str(ctx.exception))
+
+        # 12. Retry after payment status altered/reset to CREATED is rejected
+        store.set_capture(order["id"], "CAP-1", "CREATED")
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("unpaid", str(ctx.exception).lower())
+
+        # Reset back to PAID
+        store.set_capture(order["id"], "CAP-1", "PAID")
+
+        # 13. Collision: Another order trying to use the same capture ID raises error
         order2 = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
         store.set_paypal_order_id(order2["id"], "PP-2")
         store.set_capture(order2["id"], "CAP-2", "PAID")

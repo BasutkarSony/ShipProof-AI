@@ -773,31 +773,7 @@ def create_shipment_for_order(
     """
     conn = _connect()
     try:
-        # Check if capture ID is already associated with another checkout order's shipment
-        capture_owner = conn.execute(
-            "SELECT * FROM shipments WHERE paypal_capture_id = ?",
-            (paypal_capture_id,),
-        ).fetchone()
-        if capture_owner:
-            if capture_owner["checkout_order_id"] != checkout_order_id:
-                raise ValueError(
-                    f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {capture_owner['checkout_order_id']}"
-                )
-            return _row_to_shipment(capture_owner)
-
-        # Check if shipment already exists for this checkout order
-        existing_order_shipment = conn.execute(
-            "SELECT * FROM shipments WHERE checkout_order_id = ?",
-            (checkout_order_id,),
-        ).fetchone()
-        if existing_order_shipment:
-            if existing_order_shipment["paypal_capture_id"] != paypal_capture_id:
-                raise ValueError(
-                    f"Shipment already exists for checkout order '{checkout_order_id}' with different capture ID: {existing_order_shipment['paypal_capture_id']}"
-                )
-            return _row_to_shipment(existing_order_shipment)
-
-        # Fetch and verify checkout order
+        # 1. Fetch and perform ALL checkout order validations FIRST
         order_row = conn.execute(
             "SELECT id, paypal_order_id, paypal_capture_id, payment_status, currency, total_cents FROM orders WHERE id = ?",
             (checkout_order_id,),
@@ -807,6 +783,16 @@ def create_shipment_for_order(
         if order_row["payment_status"] != "PAID":
             raise ValueError(
                 f"Cannot create shipment for unpaid order: status is {order_row['payment_status']}"
+            )
+
+        # Check if capture ID belongs to another checkout order first
+        capture_owner = conn.execute(
+            "SELECT * FROM shipments WHERE paypal_capture_id = ?",
+            (paypal_capture_id,),
+        ).fetchone()
+        if capture_owner and capture_owner["checkout_order_id"] != checkout_order_id:
+            raise ValueError(
+                f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {capture_owner['checkout_order_id']}"
             )
 
         # Verify PayPal order ID matches stored order
@@ -834,12 +820,27 @@ def create_shipment_for_order(
                 f"Amount mismatch: expected {stored_total_str}, got {amount}"
             )
 
+        # 2. If capture already belongs to this checkout order, return the existing shipment
+        if capture_owner:
+            return _row_to_shipment(capture_owner)
+
+        # 3. Check if shipment already exists for this checkout order
+        existing_order_shipment = conn.execute(
+            "SELECT * FROM shipments WHERE checkout_order_id = ?",
+            (checkout_order_id,),
+        ).fetchone()
+        if existing_order_shipment:
+            if existing_order_shipment["paypal_capture_id"] != paypal_capture_id:
+                raise ValueError(
+                    f"Shipment already exists for checkout order '{checkout_order_id}' with different capture ID: {existing_order_shipment['paypal_capture_id']}"
+                )
+            return _row_to_shipment(existing_order_shipment)
+
+        # 4. Generate unique shipment identifier and insert atomically
         shipment_uuid = str(uuid.uuid4())
-        # Use predictable, recognizable shipment order_id linked to order
         short_id = checkout_order_id.split("-")[0].upper()
         shipment_order_id = f"SHP-{short_id}"
 
-        # If SHP-{short_id} already exists for another shipment, ensure uniqueness
         counter = 1
         test_id = shipment_order_id
         while conn.execute("SELECT 1 FROM shipments WHERE order_id = ?", (test_id,)).fetchone():
@@ -855,35 +856,51 @@ def create_shipment_for_order(
         if not evidence_text:
             evidence_text = f"Payment captured via PayPal ({paypal_capture_id}). Shipment created on hold awaiting merchant dispatch and carrier assignment."
 
-        with conn:
-            conn.execute(
-                """
-                INSERT INTO shipments (
-                    id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
-                    tracking_number, carrier, carrier_name_other, status,
-                    shipped_date, delivered_date, transaction_date, amount, currency,
-                    shipping_address, evidence_text, signature_obtained, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (
-                    shipment_uuid,
-                    shipment_order_id,
-                    checkout_order_id,
-                    paypal_order_id,
-                    paypal_capture_id,
-                    tracking_number,
-                    carrier,
-                    carrier_name_other,
-                    status,
-                    today_date,
-                    amount_val,
-                    currency,
-                    shipping_address,
-                    evidence_text,
-                    now_iso,
-                    now_iso,
-                ),
-            )
+        # Insert safely under concurrent execution
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO shipments (
+                        id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
+                        tracking_number, carrier, carrier_name_other, status,
+                        shipped_date, delivered_date, transaction_date, amount, currency,
+                        shipping_address, evidence_text, signature_obtained, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+                    """,
+                    (
+                        shipment_uuid,
+                        shipment_order_id,
+                        checkout_order_id,
+                        paypal_order_id,
+                        paypal_capture_id,
+                        tracking_number,
+                        carrier,
+                        carrier_name_other,
+                        status,
+                        today_date,
+                        amount_val,
+                        currency,
+                        shipping_address,
+                        evidence_text,
+                        now_iso,
+                        now_iso,
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            # Handle concurrent conflict safely: fetch and return existing row
+            existing = conn.execute(
+                "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
+                (checkout_order_id, paypal_capture_id),
+            ).fetchone()
+            if existing:
+                if existing["checkout_order_id"] != checkout_order_id:
+                    raise ValueError(
+                        f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {existing['checkout_order_id']}"
+                    )
+                return _row_to_shipment(existing)
+            raise
+
         return get_shipment_by_order_id(shipment_order_id)
     finally:
         conn.close()

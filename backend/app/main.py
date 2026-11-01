@@ -196,6 +196,18 @@ def capture_checkout_order(order_id: str, payload: dict):
             },
         )
 
+    # Verify top-level PayPal order status is COMPLETED
+    paypal_order_status = capture_result.get("status")
+    if paypal_order_status != "COMPLETED":
+        set_capture(order_id, "", "FAILED")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "PayPal order status is not COMPLETED.",
+                "order_status": paypal_order_status,
+            },
+        )
+
     purchase_units = capture_result.get("purchase_units", [])
     for pu in purchase_units:
         payments = pu.get("payments", {})
