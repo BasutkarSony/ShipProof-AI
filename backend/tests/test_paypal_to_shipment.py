@@ -107,7 +107,12 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         self.assertEqual(shipment["paypal_order_id"], "PAYPAL-ORDER-789")
         self.assertEqual(float(shipment["amount"]), 44.73)
         self.assertEqual(shipment["currency"], "USD")
-        self.assertEqual(shipment["status"], "SHIPPED")
+        self.assertEqual(shipment["status"], "ON_HOLD")
+        self.assertIsNone(shipment["shipped_date"])
+        self.assertEqual(shipment["tracking_number"], "")
+        self.assertEqual(shipment["shipping_address"], "")
+        self.assertEqual(shipment["carrier"], "OTHER")
+        self.assertEqual(shipment["carrier_name_other"], "UNASSIGNED")
 
     @patch("app.main.capture_paypal_order")
     @patch("app.main.get_access_token")
@@ -168,6 +173,95 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         recovered_shipment = get_shipment_by_checkout_order_id(order_res["order_id"])
         self.assertIsNotNone(recovered_shipment)
         self.assertEqual(recovered_shipment["paypal_capture_id"], "CAPTURE-MANUAL-1")
+
+    def test_create_shipment_for_order_validations(self):
+        # 1. Unpaid order rejected
+        order = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("unpaid", str(ctx.exception).lower())
+
+        # Set order to PAID
+        store.set_paypal_order_id(order["id"], "PP-1")
+        store.set_capture(order["id"], "CAP-1", "PAID")
+
+        # 2. PayPal order ID mismatch rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-WRONG",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("order ID mismatch", str(ctx.exception))
+
+        # 3. PayPal capture ID mismatch rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-WRONG",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("capture ID mismatch", str(ctx.exception))
+
+        # 4. Currency mismatch rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="EUR",
+            )
+        self.assertIn("Currency mismatch", str(ctx.exception))
+
+        # 5. Amount mismatch rejected
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id="PP-1",
+                paypal_capture_id="CAP-1",
+                amount="99.99",
+                currency="USD",
+            )
+        self.assertIn("Amount mismatch", str(ctx.exception))
+
+        # 6. Valid creation succeeds
+        shipment = store.create_shipment_for_order(
+            checkout_order_id=order["id"],
+            paypal_order_id="PP-1",
+            paypal_capture_id="CAP-1",
+            amount="12.99",
+            currency="USD",
+        )
+        self.assertEqual(shipment["status"], "ON_HOLD")
+        self.assertIsNone(shipment["shipped_date"])
+        self.assertEqual(shipment["carrier_name_other"], "UNASSIGNED")
+
+        # 7. Collision: Another order trying to use the same capture ID raises error
+        order2 = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        store.set_paypal_order_id(order2["id"], "PP-2")
+        store.set_capture(order2["id"], "CAP-2", "PAID")
+
+        # Directly attempt to invoke create_shipment_for_order with CAP-1 which belongs to order1's shipment
+        with self.assertRaises(ValueError) as ctx:
+            store.create_shipment_for_order(
+                checkout_order_id=order2["id"],
+                paypal_order_id="PP-2",
+                paypal_capture_id="CAP-1",
+                amount="12.99",
+                currency="USD",
+            )
+        self.assertIn("already belongs to another checkout order", str(ctx.exception))
 
     @patch("app.main.capture_paypal_order")
     @patch("app.main.get_access_token")

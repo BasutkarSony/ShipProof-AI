@@ -130,8 +130,8 @@ def init_db() -> None:
                 paypal_capture_id TEXT UNIQUE NOT NULL,
                 tracking_number TEXT NOT NULL DEFAULT '',
                 carrier TEXT NOT NULL DEFAULT 'OTHER',
-                carrier_name_other TEXT NOT NULL DEFAULT 'PayPal Packaging Delivery',
-                status TEXT NOT NULL DEFAULT 'SHIPPED',
+                carrier_name_other TEXT NOT NULL DEFAULT 'UNASSIGNED',
+                status TEXT NOT NULL DEFAULT 'ON_HOLD',
                 shipped_date TEXT,
                 delivered_date TEXT,
                 transaction_date TEXT,
@@ -751,31 +751,55 @@ def create_shipment_for_order(
     paypal_capture_id: str,
     amount: Decimal | float | int | str,
     currency: str = "USD",
-    shipping_address: str = "Merchant Packaging Warehouse",
+    shipping_address: str = "",
     carrier: str = "OTHER",
-    carrier_name_other: str = "PayPal Packaging Logistics",
+    carrier_name_other: str = "UNASSIGNED",
     tracking_number: str = "",
-    status: str = "SHIPPED",
+    status: str = "ON_HOLD",
     evidence_text: str = "",
 ) -> dict:
     """Create a persistent shipment linked to a verified paid checkout order.
 
-    Idempotent: if a shipment already exists for this checkout_order_id or paypal_capture_id,
-    the existing shipment is returned without duplication.
+    A verified PayPal payment does not mean goods have physically shipped.
+    Defaults to status = 'ON_HOLD', shipped_date = None, tracking_number = '',
+    shipping_address = '' (unless supplied), carrier = 'OTHER' and carrier_name_other = 'UNASSIGNED'.
+
+    Strengthened validations:
+    - Verifies checkout order is PAID.
+    - Verifies supplied paypal_order_id matches stored order's paypal_order_id.
+    - Verifies supplied paypal_capture_id matches stored order's paypal_capture_id.
+    - Verifies supplied amount and currency match stored checkout order.
+    - Rejects if capture ID already belongs to another checkout order.
     """
     conn = _connect()
     try:
-        # Check idempotency first
-        existing = conn.execute(
-            "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
-            (checkout_order_id, paypal_capture_id),
+        # Check if capture ID is already associated with another checkout order's shipment
+        capture_owner = conn.execute(
+            "SELECT * FROM shipments WHERE paypal_capture_id = ?",
+            (paypal_capture_id,),
         ).fetchone()
-        if existing:
-            return _row_to_shipment(existing)
+        if capture_owner:
+            if capture_owner["checkout_order_id"] != checkout_order_id:
+                raise ValueError(
+                    f"PayPal capture ID '{paypal_capture_id}' already belongs to another checkout order: {capture_owner['checkout_order_id']}"
+                )
+            return _row_to_shipment(capture_owner)
 
-        # Verify checkout order exists and is paid
+        # Check if shipment already exists for this checkout order
+        existing_order_shipment = conn.execute(
+            "SELECT * FROM shipments WHERE checkout_order_id = ?",
+            (checkout_order_id,),
+        ).fetchone()
+        if existing_order_shipment:
+            if existing_order_shipment["paypal_capture_id"] != paypal_capture_id:
+                raise ValueError(
+                    f"Shipment already exists for checkout order '{checkout_order_id}' with different capture ID: {existing_order_shipment['paypal_capture_id']}"
+                )
+            return _row_to_shipment(existing_order_shipment)
+
+        # Fetch and verify checkout order
         order_row = conn.execute(
-            "SELECT id, payment_status, total_cents FROM orders WHERE id = ?",
+            "SELECT id, paypal_order_id, paypal_capture_id, payment_status, currency, total_cents FROM orders WHERE id = ?",
             (checkout_order_id,),
         ).fetchone()
         if not order_row:
@@ -783,6 +807,31 @@ def create_shipment_for_order(
         if order_row["payment_status"] != "PAID":
             raise ValueError(
                 f"Cannot create shipment for unpaid order: status is {order_row['payment_status']}"
+            )
+
+        # Verify PayPal order ID matches stored order
+        if order_row["paypal_order_id"] != paypal_order_id:
+            raise ValueError(
+                f"PayPal order ID mismatch: expected '{order_row['paypal_order_id']}', got '{paypal_order_id}'"
+            )
+
+        # Verify PayPal capture ID matches stored order
+        if order_row["paypal_capture_id"] != paypal_capture_id:
+            raise ValueError(
+                f"PayPal capture ID mismatch: expected '{order_row['paypal_capture_id']}', got '{paypal_capture_id}'"
+            )
+
+        # Verify currency matches stored order
+        if order_row["currency"] != currency:
+            raise ValueError(
+                f"Currency mismatch: expected '{order_row['currency']}', got '{currency}'"
+            )
+
+        # Verify amount matches stored checkout order total
+        stored_total_str = _money(order_row["total_cents"])
+        if Decimal(str(amount)) != Decimal(stored_total_str):
+            raise ValueError(
+                f"Amount mismatch: expected {stored_total_str}, got {amount}"
             )
 
         shipment_uuid = str(uuid.uuid4())
@@ -804,7 +853,7 @@ def create_shipment_for_order(
 
         amount_val = float(Decimal(str(amount)))
         if not evidence_text:
-            evidence_text = f"Packaging order verified and prepared for fulfillment. PayPal capture: {paypal_capture_id}."
+            evidence_text = f"Payment captured via PayPal ({paypal_capture_id}). Shipment created on hold awaiting merchant dispatch and carrier assignment."
 
         with conn:
             conn.execute(
@@ -814,7 +863,7 @@ def create_shipment_for_order(
                     tracking_number, carrier, carrier_name_other, status,
                     shipped_date, delivered_date, transaction_date, amount, currency,
                     shipping_address, evidence_text, signature_obtained, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     shipment_uuid,
@@ -826,7 +875,6 @@ def create_shipment_for_order(
                     carrier,
                     carrier_name_other,
                     status,
-                    today_date,
                     today_date,
                     amount_val,
                     currency,
