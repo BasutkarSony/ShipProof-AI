@@ -122,6 +122,31 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_inspection_photos_inspection_id
                 ON inspection_photos(inspection_id);
+            CREATE TABLE IF NOT EXISTS shipments (
+                id TEXT PRIMARY KEY,
+                order_id TEXT UNIQUE NOT NULL,
+                checkout_order_id TEXT UNIQUE NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                paypal_order_id TEXT NOT NULL,
+                paypal_capture_id TEXT UNIQUE NOT NULL,
+                tracking_number TEXT NOT NULL DEFAULT '',
+                carrier TEXT NOT NULL DEFAULT 'OTHER',
+                carrier_name_other TEXT NOT NULL DEFAULT 'PayPal Packaging Delivery',
+                status TEXT NOT NULL DEFAULT 'SHIPPED',
+                shipped_date TEXT,
+                delivered_date TEXT,
+                transaction_date TEXT,
+                amount REAL NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'USD',
+                shipping_address TEXT NOT NULL DEFAULT '',
+                evidence_text TEXT NOT NULL DEFAULT '',
+                signature_obtained INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_shipments_checkout_order_id
+                ON shipments(checkout_order_id);
+            CREATE INDEX IF NOT EXISTS idx_shipments_paypal_capture_id
+                ON shipments(paypal_capture_id);
             """
         )
         for product in CATALOGUE:
@@ -703,5 +728,202 @@ def list_inspections_for_manifest(manifest_id: str) -> list[dict]:
             (manifest_id,),
         ).fetchall()
         return [get_inspection(row["id"]) for row in rows]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Persistent shipment records linked to checkout orders
+# ---------------------------------------------------------------------------
+
+def _row_to_shipment(row: sqlite3.Row) -> dict:
+    rec = dict(row)
+    rec["signature_obtained"] = bool(rec.get("signature_obtained", 0))
+    # Make sure transaction_id maps to paypal_capture_id for validator/payload compatibility
+    if "transaction_id" not in rec or not rec["transaction_id"]:
+        rec["transaction_id"] = rec.get("paypal_capture_id", "")
+    return rec
+
+
+def create_shipment_for_order(
+    checkout_order_id: str,
+    paypal_order_id: str,
+    paypal_capture_id: str,
+    amount: Decimal | float | int | str,
+    currency: str = "USD",
+    shipping_address: str = "Merchant Packaging Warehouse",
+    carrier: str = "OTHER",
+    carrier_name_other: str = "PayPal Packaging Logistics",
+    tracking_number: str = "",
+    status: str = "SHIPPED",
+    evidence_text: str = "",
+) -> dict:
+    """Create a persistent shipment linked to a verified paid checkout order.
+
+    Idempotent: if a shipment already exists for this checkout_order_id or paypal_capture_id,
+    the existing shipment is returned without duplication.
+    """
+    conn = _connect()
+    try:
+        # Check idempotency first
+        existing = conn.execute(
+            "SELECT * FROM shipments WHERE checkout_order_id = ? OR paypal_capture_id = ?",
+            (checkout_order_id, paypal_capture_id),
+        ).fetchone()
+        if existing:
+            return _row_to_shipment(existing)
+
+        # Verify checkout order exists and is paid
+        order_row = conn.execute(
+            "SELECT id, payment_status, total_cents FROM orders WHERE id = ?",
+            (checkout_order_id,),
+        ).fetchone()
+        if not order_row:
+            raise ValueError(f"Checkout order not found: {checkout_order_id}")
+        if order_row["payment_status"] != "PAID":
+            raise ValueError(
+                f"Cannot create shipment for unpaid order: status is {order_row['payment_status']}"
+            )
+
+        shipment_uuid = str(uuid.uuid4())
+        # Use predictable, recognizable shipment order_id linked to order
+        short_id = checkout_order_id.split("-")[0].upper()
+        shipment_order_id = f"SHP-{short_id}"
+
+        # If SHP-{short_id} already exists for another shipment, ensure uniqueness
+        counter = 1
+        test_id = shipment_order_id
+        while conn.execute("SELECT 1 FROM shipments WHERE order_id = ?", (test_id,)).fetchone():
+            test_id = f"{shipment_order_id}-{counter}"
+            counter += 1
+        shipment_order_id = test_id
+
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+        today_date = now.strftime("%Y-%m-%d")
+
+        amount_val = float(Decimal(str(amount)))
+        if not evidence_text:
+            evidence_text = f"Packaging order verified and prepared for fulfillment. PayPal capture: {paypal_capture_id}."
+
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO shipments (
+                    id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
+                    tracking_number, carrier, carrier_name_other, status,
+                    shipped_date, delivered_date, transaction_date, amount, currency,
+                    shipping_address, evidence_text, signature_obtained, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    shipment_uuid,
+                    shipment_order_id,
+                    checkout_order_id,
+                    paypal_order_id,
+                    paypal_capture_id,
+                    tracking_number,
+                    carrier,
+                    carrier_name_other,
+                    status,
+                    today_date,
+                    today_date,
+                    amount_val,
+                    currency,
+                    shipping_address,
+                    evidence_text,
+                    now_iso,
+                    now_iso,
+                ),
+            )
+        return get_shipment_by_order_id(shipment_order_id)
+    finally:
+        conn.close()
+
+
+def get_shipment_by_order_id(order_id: str) -> dict | None:
+    """Return shipment record by order_id (e.g. 'SHP-XXXX')."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM shipments WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_shipment(row)
+    finally:
+        conn.close()
+
+
+def get_shipment_by_checkout_order_id(checkout_order_id: str) -> dict | None:
+    """Return shipment record by checkout_order_id."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM shipments WHERE checkout_order_id = ?", (checkout_order_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_shipment(row)
+    finally:
+        conn.close()
+
+
+def list_shipments() -> list[dict]:
+    """Return all persistent shipment records, newest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM shipments ORDER BY created_at DESC"
+        ).fetchall()
+        return [_row_to_shipment(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def update_shipment(order_id: str, **updates) -> dict:
+    """Update editable fields on a persistent shipment."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM shipments WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Shipment not found: {order_id}")
+
+        allowed = {
+            "tracking_number",
+            "carrier",
+            "carrier_name_other",
+            "status",
+            "shipped_date",
+            "delivered_date",
+            "amount",
+            "currency",
+            "shipping_address",
+            "evidence_text",
+            "signature_obtained",
+        }
+        set_clauses = []
+        vals = []
+        for k, v in updates.items():
+            if k in allowed:
+                set_clauses.append(f"{k} = ?")
+                if k == "signature_obtained":
+                    vals.append(1 if v else 0)
+                else:
+                    vals.append(v)
+
+        if not set_clauses:
+            return _row_to_shipment(row)
+
+        set_clauses.append("updated_at = ?")
+        vals.append(datetime.now(timezone.utc).isoformat())
+        vals.append(order_id)
+
+        sql = f"UPDATE shipments SET {', '.join(set_clauses)} WHERE order_id = ?"
+        with conn:
+            conn.execute(sql, tuple(vals))
+        return get_shipment_by_order_id(order_id)
     finally:
         conn.close()
