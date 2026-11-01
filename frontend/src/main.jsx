@@ -1957,6 +1957,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
 
   // Upload state
   const [selectedPhotos, setSelectedPhotos] = useState([]) // array of { file, previewUrl, id, sizeFormatted }
+  const [photoShipmentId, setPhotoShipmentId] = useState(null)
   const [uploadError, setUploadError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [processingStatus, setProcessingStatus] = useState('') // 'uploading' | 'analyzing'
@@ -1966,15 +1967,55 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     return orders.find(o => o.order_id === activeShipmentId) || orders[0] || null
   }, [orders, activeShipmentId])
 
-  // Fetch manifest for currently selected shipment
+  // Synchronize photosRef inside an effect instead of render
+  const photosRef = React.useRef([])
   useEffect(() => {
+    photosRef.current = selectedPhotos
+  }, [selectedPhotos])
+
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      for (const p of photosRef.current) {
+        if (p?.previewUrl) URL.revokeObjectURL(p.previewUrl)
+      }
+    }
+  }, [])
+
+  function switchShipment(orderId) {
+    if (uploading) return
+    // Revoke any existing object URLs
+    for (const p of selectedPhotos) {
+      if (p?.previewUrl) URL.revokeObjectURL(p.previewUrl)
+    }
+    setSelectedPhotos([])
+    setPhotoShipmentId(null)
+    setInspectionResult(null)
+    setUploadError('')
+    setProcessingStatus('')
+    setActiveShipmentId(orderId)
+  }
+
+  // When selected shipment changes: clear existing photos/state and fetch its manifest
+  const prevShipmentIdRef = React.useRef(selectedShipment?.order_id)
+  useEffect(() => {
+    if (prevShipmentIdRef.current !== selectedShipment?.order_id) {
+      prevShipmentIdRef.current = selectedShipment?.order_id
+      for (const p of photosRef.current) {
+        if (p?.previewUrl) URL.revokeObjectURL(p.previewUrl)
+      }
+      setSelectedPhotos([])
+      setPhotoShipmentId(null)
+      setInspectionResult(null)
+      setUploadError('')
+      setProcessingStatus('')
+    }
+
     let ignore = false
     async function fetchManifest() {
       if (!selectedShipment) return
       setLoading(true)
       setError('')
-      setUploadError('')
-      setInspectionResult(null)
       try {
         const res = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/manifest`)
         if (ignore) return
@@ -2043,6 +2084,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     }
 
     setSelectedPhotos(prev => [...prev, ...newItems])
+    setPhotoShipmentId(selectedShipment.order_id)
     // Reset file input value so same files can be re-selected if removed
     e.target.value = ''
   }
@@ -2051,7 +2093,11 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     setSelectedPhotos(prev => {
       const target = prev.find(p => p.id === id)
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
-      return prev.filter(p => p.id !== id)
+      const next = prev.filter(p => p.id !== id)
+      if (next.length === 0) {
+        setPhotoShipmentId(null)
+      }
+      return next
     })
   }
 
@@ -2062,6 +2108,11 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
     }
     if (selectedPhotos.length === 0) {
       setUploadError('Please select at least 1 photograph of the packing station.')
+      return
+    }
+    // Integrity check: Ensure photos belong to current shipment
+    if (photoShipmentId && photoShipmentId !== selectedShipment.order_id) {
+      setUploadError('The selected photographs do not match the current shipment. Please re-select photos.')
       return
     }
 
@@ -2130,8 +2181,10 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                 <button
                   key={order.order_id}
                   className={`manifest-shipment-card ${isSelected ? 'active' : ''}`}
+                  disabled={uploading}
+                  title={uploading ? 'Inspection upload in progress — shipment switching disabled' : ''}
                   onClick={() => {
-                    setActiveShipmentId(order.order_id)
+                    switchShipment(order.order_id)
                   }}
                 >
                   <div className="m-card-top">
