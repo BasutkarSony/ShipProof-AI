@@ -570,6 +570,75 @@ class InspectionAPITests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.status_code, 503)
 
+    def test_run_inspection_server_error_503_raises_gemini_unavailable(self):
+        """Simulate google.genai.errors.ServerError(503, '503 UNAVAILABLE') and ensure mapping to GeminiUnavailableError."""
+        from app.packing_inspector import run_inspection, GeminiUnavailableError
+        from google.genai import errors as genai_errors
+        import tempfile
+
+        manifest = {
+            "id": "man-1",
+            "shipment_order_id": "ORD-TEST-1",
+            "manifest_hash": "a" * 64,
+            "notes": None,
+            "items": [{"id": "item-1", "description": "Test Item", "expected_qty": 1, "sku": "SKU-1", "fragile": False}],
+        }
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            tf.write(_make_jpeg())
+            tf_path = tf.name
+
+        try:
+            photo_metas = [{"id": "p-1", "path": tf_path, "mime_type": "image/jpeg"}]
+            with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-api-key"}):
+                with patch("google.genai.Client") as mock_client_cls:
+                    mock_client = MagicMock()
+                    mock_client_cls.return_value = mock_client
+                    server_error = genai_errors.ServerError(503, "503 UNAVAILABLE")
+                    mock_client.models.generate_content.side_effect = server_error
+
+                    with self.assertRaises(GeminiUnavailableError) as ctx:
+                        run_inspection(manifest, photo_metas)
+
+                    self.assertIn("temporarily unavailable", str(ctx.exception))
+                    self.assertIn("503 UNAVAILABLE", str(ctx.exception))
+                    # Ensure no secret key or stack trace is in message
+                    self.assertNotIn("fake-api-key", str(ctx.exception))
+        finally:
+            if os.path.exists(tf_path):
+                os.unlink(tf_path)
+
+    def test_inspection_api_503_server_error_cleans_up_photos(self):
+        """Test end-to-end 503 ServerError during inspection API call: returns 503 and deletes uploaded files."""
+        from fastapi import HTTPException
+        from app.packing_inspector import run_inspection, GeminiUnavailableError, PHOTO_DIR
+        from google.genai import errors as genai_errors
+
+        manifest = self._finalized_manifest_via_api()
+        photos = [self._make_upload(_make_jpeg())]
+
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-api-key"}):
+            with patch("google.genai.Client") as mock_client_cls:
+                mock_client = MagicMock()
+                mock_client_cls.return_value = mock_client
+                mock_client.models.generate_content.side_effect = genai_errors.ServerError(503, "503 UNAVAILABLE")
+
+                # Before request, count existing files in storage
+                before_files = set(PHOTO_DIR.iterdir()) if PHOTO_DIR.exists() else set()
+
+                with self.assertRaises(HTTPException) as ctx:
+                    self._run_async(
+                        self.create_packing_inspection(manifest["id"], photos)
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 503)
+                self.assertIn("temporarily unavailable", str(ctx.exception.detail))
+                self.assertNotIn("fake-api-key", str(ctx.exception.detail))
+
+                # After request, verify no leaked photo files remain
+                after_files = set(PHOTO_DIR.iterdir()) if PHOTO_DIR.exists() else set()
+                new_files = after_files - before_files
+                self.assertEqual(len(new_files), 0, "Uploaded photos were not cleaned up on 503")
+
     def test_create_inspection_gemini_runtime_error_raises_502(self):
         from fastapi import HTTPException
         manifest = self._finalized_manifest_via_api()
