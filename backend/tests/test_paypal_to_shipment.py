@@ -431,72 +431,86 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         order_a = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
         order_b = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
 
+        # Mark BOTH checkout orders as PAID using distinct capture IDs
         store.set_paypal_order_id(order_a["id"], "PP-A")
-        store.set_capture(order_a["id"], "SHARED-CAP-1", "PAID")
+        store.set_capture(order_a["id"], "CAP-A", "PAID")
 
-        # Manually link order_b in DB with a distinct capture first to satisfy order table unique constraint,
-        # then test create_shipment_for_order attempting to claim SHARED-CAP-1
         store.set_paypal_order_id(order_b["id"], "PP-B")
+        store.set_capture(order_b["id"], "CAP-B", "PAID")
 
+        # First, order_a creates a valid shipment with its capture CAP-A
+        shipment_a = store.create_shipment_for_order(
+            checkout_order_id=order_a["id"],
+            paypal_order_id="PP-A",
+            paypal_capture_id="CAP-A",
+            amount="12.99",
+            currency="USD",
+        )
+        self.assertIsNotNone(shipment_a)
+
+        # Now test concurrent calls where order_a retries its legitimate CAP-A
+        # while order_b simultaneously attempts to hijack CAP-A
         barrier = threading.Barrier(2)
 
-        def worker_a():
+        def worker_legitimate():
             barrier.wait()
             return store.create_shipment_for_order(
                 checkout_order_id=order_a["id"],
                 paypal_order_id="PP-A",
-                paypal_capture_id="SHARED-CAP-1",
+                paypal_capture_id="CAP-A",
                 amount="12.99",
                 currency="USD",
             )
 
-        def worker_b():
+        def worker_hijack():
             barrier.wait()
-            # Order B attempts to claim SHARED-CAP-1
+            # Order B attempts to claim CAP-A which already belongs to Order A
             return store.create_shipment_for_order(
                 checkout_order_id=order_b["id"],
                 paypal_order_id="PP-B",
-                paypal_capture_id="SHARED-CAP-1",
+                paypal_capture_id="CAP-A",
                 amount="12.99",
                 currency="USD",
             )
 
         with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_a = executor.submit(worker_a)
-            fut_b = executor.submit(worker_b)
+            fut_legit = executor.submit(worker_legitimate)
+            fut_hijack = executor.submit(worker_hijack)
 
-            res_a = None
-            res_b = None
-            err_a = None
-            err_b = None
-
-            try:
-                res_a = fut_a.result()
-            except Exception as e:
-                err_a = e
+            res_legit = None
+            res_hijack = None
+            err_legit = None
+            err_hijack = None
 
             try:
-                res_b = fut_b.result()
+                res_legit = fut_legit.result()
             except Exception as e:
-                err_b = e
+                err_legit = e
 
-        # Exactly one order succeeds; the other gets an error (order_b is unpaid or collision error)
-        # Because SHARED-CAP-1 cannot belong to both orders
-        successes = [r for r in [res_a, res_b] if r is not None]
-        errors = [e for e in [err_a, err_b] if e is not None]
+            try:
+                res_hijack = fut_hijack.result()
+            except Exception as e:
+                err_hijack = e
 
-        self.assertEqual(len(successes), 1)
-        self.assertEqual(len(errors), 1)
-        self.assertIsInstance(errors[0], ValueError)
+        # Legitimate caller succeeds without error
+        self.assertIsNone(err_legit)
+        self.assertIsNotNone(res_legit)
+        self.assertEqual(res_legit["id"], shipment_a["id"])
 
-        # In SQLite, exactly 1 shipment exists with SHARED-CAP-1
+        # Hijack attempt must fail specifically with the capture collision error
+        self.assertIsNone(res_hijack)
+        self.assertIsNotNone(err_hijack)
+        self.assertIsInstance(err_hijack, ValueError)
+        self.assertIn("already belongs to another checkout order", str(err_hijack))
+
+        # In SQLite, exactly 1 shipment exists for CAP-A, owned by order_a
         conn = store._connect()
         try:
             rows = conn.execute(
-                "SELECT * FROM shipments WHERE paypal_capture_id = 'SHARED-CAP-1'"
+                "SELECT * FROM shipments WHERE paypal_capture_id = 'CAP-A'"
             ).fetchall()
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["checkout_order_id"], successes[0]["checkout_order_id"])
+            self.assertEqual(rows[0]["checkout_order_id"], order_a["id"])
         finally:
             conn.close()
 
