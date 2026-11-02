@@ -27,6 +27,11 @@ from app.store import (
     create_inspection,
     get_inspection,
     list_inspections_for_manifest,
+    create_shipment_for_order,
+    get_shipment_by_order_id,
+    get_shipment_by_checkout_order_id,
+    list_shipments,
+    update_shipment,
 )
 import json
 from pathlib import Path
@@ -66,9 +71,16 @@ def health():
 
 @app.get("/api/orders")
 def list_orders():
+    # Load sample shipment orders
     with DATA_FILE.open("r", encoding="utf-8-sig") as file:
-        orders = json.load(file)
-    return {"orders": orders}
+        sample_orders = json.load(file)
+
+    # Load persistent shipments created from PayPal checkout payments
+    persistent_shipments = list_shipments()
+
+    # Combine persistent shipments with sample orders (persistent shipments first)
+    combined = list(persistent_shipments) + sample_orders
+    return {"orders": combined}
 
 
 @app.get("/api/catalog")
@@ -131,10 +143,23 @@ def capture_checkout_order(order_id: str, payload: dict):
 
     # Idempotency: already captured orders return without calling PayPal again.
     if order.get("payment_status") in ("PAID", "CAPTURED"):
+        # Ensure shipment exists for this paid order (retry recovery if payment succeeded but shipment failed)
+        existing_shipment = get_shipment_by_checkout_order_id(order_id)
+        if not existing_shipment and order.get("paypal_capture_id"):
+            existing_shipment = create_shipment_for_order(
+                checkout_order_id=order["id"],
+                paypal_order_id=order.get("paypal_order_id") or "",
+                paypal_capture_id=order.get("paypal_capture_id"),
+                amount=order.get("total", "0.00"),
+                currency=order.get("currency", "USD"),
+            )
+
         return {
             "order_id": order["id"],
             "paypal_order_id": order.get("paypal_order_id"),
             "paypal_capture_id": order.get("paypal_capture_id"),
+            "shipment_id": existing_shipment.get("id") if existing_shipment else None,
+            "shipment_order_id": existing_shipment.get("order_id") if existing_shipment else None,
             "payment_status": order.get("payment_status"),
             "already_captured": True,
         }
@@ -168,6 +193,18 @@ def capture_checkout_order(order_id: str, payload: dict):
             status_code=422,
             detail={
                 "message": "PayPal order ID mismatch or missing in capture response.",
+            },
+        )
+
+    # Verify top-level PayPal order status is COMPLETED
+    paypal_order_status = capture_result.get("status")
+    if paypal_order_status != "COMPLETED":
+        set_capture(order_id, "", "FAILED")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "PayPal order status is not COMPLETED.",
+                "order_status": paypal_order_status,
             },
         )
 
@@ -249,10 +286,22 @@ def capture_checkout_order(order_id: str, payload: dict):
     # Persist the actual nested capture ID, not the top-level order ID.
     set_capture(order_id, capture_id, "PAID")
 
+    # Only create a shipment after PayPal capture is verified.
+    # Persist the local checkout order ID and PayPal capture ID against the shipment.
+    shipment = create_shipment_for_order(
+        checkout_order_id=order["id"],
+        paypal_order_id=paypal_order_id,
+        paypal_capture_id=capture_id,
+        amount=order["total"],
+        currency="USD",
+    )
+
     return {
         "order_id": order["id"],
         "paypal_order_id": paypal_order_id,
         "paypal_capture_id": capture_id,
+        "shipment_id": shipment["id"],
+        "shipment_order_id": shipment["order_id"],
         "payment_status": "PAID",
         "already_captured": False,
     }
@@ -339,18 +388,29 @@ def paypal_submit_tracking(payload: dict):
 # ---------------------------------------------------------------------------
 
 def _load_shipment_orders() -> dict:
-    """Return a dict keyed by order_id from the shipment evidence data source."""
+    """Return a dict keyed by order_id combining persistent DB shipments and sample orders."""
+    orders = {}
     with DATA_FILE.open("r", encoding="utf-8-sig") as fh:
-        orders = json.load(fh)
-    return {o["order_id"]: o for o in orders}
+        sample_orders = json.load(fh)
+    for o in sample_orders:
+        orders[o["order_id"]] = o
+
+    for s in list_shipments():
+        orders[s["order_id"]] = s
+
+    return orders
 
 
 def _require_shipment_order(shipment_order_id: str) -> dict:
     """Return the shipment record or raise 404.
 
-    The shipment evidence records live in the JSON data source, completely
-    separate from the SQLite checkout orders table.
+    Checks persistent SQLite shipment records and sample orders.
     """
+    # Check persistent DB shipments first
+    db_shipment = get_shipment_by_order_id(shipment_order_id)
+    if db_shipment:
+        return db_shipment
+
     orders = _load_shipment_orders()
     record = orders.get(shipment_order_id)
     if record is None:

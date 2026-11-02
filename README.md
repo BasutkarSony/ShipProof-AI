@@ -44,6 +44,7 @@ It provides a centralized workflow for reviewing shipment data, identifying evid
 | Evidence remediation | Allows merchants to review and edit shipment information and recalculate validation. |
 | Readiness assessment | Presents an advisory evidence-quality assessment with actionable findings. |
 | PayPal integration | Supports Sandbox OAuth verification and tracking payload preparation. |
+| Payment-to-shipment integration | Links verified PayPal checkout captures directly to persistent shipment records and manifests. |
 | Submission safeguards | Keeps tracking writes disabled by default. |
 
 ## How it works
@@ -92,6 +93,15 @@ Merchant-provided statements are not equivalent to independently verified carrie
 Inspect the generated tracking payload before any external operation.
 
 The standard workflow does not automatically submit tracking information.
+
+### 05 — Packaging checkout & payment-to-shipment workflow
+
+Merchants can order packaging supplies through the catalogue checkout:
+- **Server-Calculated Orders**: Client-side prices and totals are never trusted; order totals are computed from the server catalog.
+- **Strict Verification**: PayPal Sandbox order captures are strictly validated for completed status, USD currency, and exact amount matching before marking an order as `PAID`.
+- **Persistent Shipment Linkage**: Upon successful verification, a persistent shipment record is automatically created and idempotently linked to the checkout order via `checkout_order_id` and `paypal_capture_id`.
+- **Manifest Management**: Newly paid shipments appear in Shipment & Manifest Management. Merchants create and edit DRAFT manifests for the actual merchandise being shipped (purchased packaging supplies are not automatically treated as shipment contents).
+- **Packing Station & AI Review**: Finalized manifests with deterministic SHA-256 fingerprints proceed to the Packing Station for photo upload and Gemini inspection (held at `PENDING_HUMAN_REVIEW`).
 
 ## Technology stack
 

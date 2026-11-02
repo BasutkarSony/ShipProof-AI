@@ -90,7 +90,7 @@ CAPTURE_WRONG_CURRENCY = {
 
 CAPTURE_INCOMPLETE_STATUS = {
     "id": "PAYPAL-ORDER-123",
-    "status": "APPROVED",
+    "status": "COMPLETED",
     "purchase_units": [
         {
             "reference_id": "default",
@@ -100,6 +100,26 @@ CAPTURE_INCOMPLETE_STATUS = {
                     {
                         "id": "CAPTURE-123",
                         "status": "APPROVED",
+                        "amount": {"currency_code": "USD", "value": "44.73"},
+                    }
+                ]
+            },
+        }
+    ],
+}
+
+CAPTURE_INCOMPLETE_ORDER_STATUS = {
+    "id": "PAYPAL-ORDER-123",
+    "status": "APPROVED",
+    "purchase_units": [
+        {
+            "reference_id": "default",
+            "amount": {"currency_code": "USD", "value": "44.73"},
+            "payments": {
+                "captures": [
+                    {
+                        "id": "CAPTURE-123",
+                        "status": "COMPLETED",
                         "amount": {"currency_code": "USD", "value": "44.73"},
                     }
                 ]
@@ -408,6 +428,42 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertIn("capture ID is missing or invalid", str(ctx.exception.detail))
 
         # Order marked as FAILED.
+        order = get_order(create_result["order_id"])
+        self.assertEqual(order["payment_status"], "FAILED")
+
+    @patch("app.main.capture_paypal_order")
+    @patch("app.main.get_access_token")
+    def test_capture_incomplete_order_status_rejected_and_marked_failed(
+        self, mock_token, mock_capture
+    ):
+        mock_token.return_value = "test-token"
+        mock_capture.return_value = CAPTURE_INCOMPLETE_ORDER_STATUS
+
+        with patch("app.main.create_paypal_order") as mock_create, patch(
+            "app.main.get_access_token"
+        ) as mock_token2:
+            mock_token2.return_value = "test-token"
+            mock_create.return_value = {
+                "id": "PAYPAL-ORDER-123",
+                "status": "CREATED",
+                "links": [{"rel": "approve", "href": "https://example.com/approve"}],
+            }
+            create_result = create_checkout_order(
+                {
+                    "items": [
+                        {"sku": "SHIP-STD-001", "quantity": 2},
+                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                    ],
+                    "currency": "USD",
+                }
+            )
+
+        with self.assertRaises(HTTPException) as ctx:
+            capture_checkout_order(create_result["order_id"], {})
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("PayPal order status is not COMPLETED", str(ctx.exception.detail))
+
         order = get_order(create_result["order_id"])
         self.assertEqual(order["payment_status"], "FAILED")
 

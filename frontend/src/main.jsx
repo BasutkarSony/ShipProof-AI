@@ -555,6 +555,19 @@ export default function App() {
         sessionStorage.removeItem('shipproof_paypal_order_id')
       }
       setCaptureResult(data)
+
+      // Refresh orders list so the new shipment is immediately available
+      fetch(`${API_BASE}/api/orders`)
+        .then(r => r.ok ? r.json() : null)
+        .then(fresh => {
+          if (fresh?.orders) {
+            setOrders(fresh.orders)
+            if (data.shipment_order_id) {
+              setActiveShipmentId(data.shipment_order_id)
+            }
+          }
+        })
+        .catch(() => {})
     } catch (err) {
       setCaptureError(err.message || 'Payment capture failed. Check the backend.')
     } finally {
@@ -1274,7 +1287,17 @@ function ShipmentReviewMain({
                   <div className="order-meta">
                     <div className="order-meta-head">
                       <strong>{order.order_id}</strong>
-                      <small>PayPal Txn: {order.transaction_id}</small>
+                      {order.checkout_order_id && (
+                        <span className="pill pill-pass" style={{ fontSize: '10px', padding: '2px 6px', marginLeft: '6px' }}>
+                          PAID CHECKOUT
+                        </span>
+                      )}
+                      <small>PayPal Txn: {order.transaction_id || order.paypal_capture_id || '—'}</small>
+                      {order.checkout_order_id && (
+                        <small style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Order: {order.checkout_order_id.slice(0, 8)}… · Capture: {order.paypal_capture_id || '—'}
+                        </small>
+                      )}
                     </div>
                   </div>
                   <div className="status-badges">
@@ -1682,8 +1705,11 @@ function ShipmentsManifestView({ orders, activeShipmentId, setActiveShipmentId, 
                   <h2>{selectedShipment.order_id}</h2>
                   <p>
                     Carrier: <strong>{selectedShipment.carrier || 'Unspecified'}</strong> ·
-                    Txn: <code>{selectedShipment.transaction_id}</code> ·
+                    Txn: <code>{selectedShipment.transaction_id || selectedShipment.paypal_capture_id || '—'}</code> ·
                     Order Total: <strong>${Number(selectedShipment.amount || 0).toFixed(2)} {selectedShipment.currency || 'USD'}</strong>
+                    {selectedShipment.checkout_order_id && (
+                      <> · Order: <code>{selectedShipment.checkout_order_id.slice(0, 8)}…</code></>
+                    )}
                   </p>
                 </div>
                 <div className="m-header-right">
@@ -3235,6 +3261,14 @@ function CheckoutReturnView({ captureLoading, captureError, captureResult, navig
                 <dt>Local Order ID</dt>
                 <dd className="result-detail-value">{captureResult.order_id}</dd>
               </div>
+              {captureResult.shipment_order_id && (
+                <div className="result-detail-row">
+                  <dt>Shipment ID</dt>
+                  <dd className="result-detail-value">
+                    <strong style={{ color: 'var(--primary, #0070ba)' }}>{captureResult.shipment_order_id}</strong>
+                  </dd>
+                </div>
+              )}
               {captureResult.paypal_capture_id && (
                 <div className="result-detail-row">
                   <dt>PayPal Capture ID</dt>
@@ -3256,7 +3290,15 @@ function CheckoutReturnView({ captureLoading, captureError, captureResult, navig
             </dl>
 
             <div className="result-card-actions">
-              <button className="btn-primary" onClick={() => navigateTo('/')}>
+              {captureResult.shipment_order_id ? (
+                <button
+                  className="btn-primary"
+                  onClick={() => navigateTo('/manifests', { shipmentId: captureResult.shipment_order_id })}
+                >
+                  Create Shipment Manifest →
+                </button>
+              ) : null}
+              <button className={captureResult.shipment_order_id ? 'btn-secondary' : 'btn-primary'} onClick={() => navigateTo('/')}>
                 View Shipment Review
               </button>
               <button className="btn-secondary" onClick={() => navigateTo('/checkout')}>

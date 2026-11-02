@@ -398,14 +398,36 @@ def run_inspection(manifest: dict, photo_metas: list[dict]) -> dict:
         )
 
     import json as _json
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=_INSPECTION_SCHEMA,
-        ),
-    )
+    try:
+        from google.genai import errors as genai_errors
+    except ImportError:
+        genai_errors = None
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=_INSPECTION_SCHEMA,
+            ),
+        )
+    except Exception as exc:
+        # Check if Google GenAI ServerError / 503 UNAVAILABLE occurred
+        code = getattr(exc, "code", None)
+        exc_str = str(exc)
+        if (
+            code == 503
+            or "503" in exc_str
+            or "UNAVAILABLE" in exc_str
+            or (genai_errors and isinstance(exc, genai_errors.ServerError) and code == 503)
+        ):
+            raise GeminiUnavailableError(
+                "Gemini service is temporarily unavailable (503 UNAVAILABLE). Please retry your inspection in a few moments."
+            ) from None
+
+        # Clean generic error without leaking sensitive tokens, keys, or stack traces
+        raise RuntimeError("Gemini visual inspection API request failed.") from None
 
     try:
         ai_result = _json.loads(response.text)
