@@ -13,7 +13,11 @@ from fastapi import HTTPException
 
 import app.store as store
 from app.store import init_db, create_order, get_order
-from app.paypal_client import create_paypal_order as paypal_create_order
+from app.paypal_client import (
+    create_paypal_order as paypal_create_order,
+    submit_tracking as paypal_submit_tracking,
+    PayPalConfigurationError,
+)
 from app.main import create_checkout_order as _create_checkout_order, capture_checkout_order
 
 
@@ -931,6 +935,108 @@ class PayPalCheckoutTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             capture_checkout_order("00000000-0000-0000-0000-000000000000", {})
         self.assertEqual(ctx.exception.status_code, 404)
+
+
+class PayPalOrdersV2TrackingTests(unittest.TestCase):
+    def _tracking_order(self):
+        return {
+            "paypal_order_id": "PAYPALORDER123",
+            "paypal_capture_id": "CAPTURE123",
+            "tracking_number": "TRACK-12345",
+            "carrier": "DHL",
+            "notify_payer": True,
+            "items": [
+                {"sku": "MUG-CER-001", "name": "Ceramic Coffee Mug", "quantity": 2},
+                {"sku": "TOTE-COT-002", "name": "Cotton Canvas Tote Bag", "quantity": 1},
+            ],
+        }
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
+    @patch("app.paypal_client.get_access_token", return_value="test-token")
+    @patch("app.paypal_client.requests.post")
+    def test_tracking_uses_orders_v2_exact_order_capture_and_order_items(
+        self, mock_post, mock_token
+    ):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"id": "PAYPALORDER123", "status": "COMPLETED"}
+        mock_post.return_value = mock_response
+
+        result = paypal_submit_tracking(self._tracking_order())
+
+        self.assertEqual(result["id"], "PAYPALORDER123")
+        args = mock_post.call_args
+        self.assertEqual(
+            args.args[0],
+            "https://api-m.sandbox.paypal.com/v2/checkout/orders/PAYPALORDER123/track",
+        )
+        self.assertEqual(args.kwargs["headers"]["Authorization"], "Bearer test-token")
+        self.assertEqual(
+            args.kwargs["json"],
+            {
+                "capture_id": "CAPTURE123",
+                "tracking_number": "TRACK-12345",
+                "carrier": "DHL",
+                "notify_payer": True,
+                "items": [
+                    {"name": "Ceramic Coffee Mug", "sku": "MUG-CER-001", "quantity": "2"},
+                    {"name": "Cotton Canvas Tote Bag", "sku": "TOTE-COT-002", "quantity": "1"},
+                ],
+            },
+        )
+        self.assertNotIn("transaction_id", args.kwargs["json"])
+        self.assertNotIn("status", args.kwargs["json"])
+        mock_token.assert_called_once_with()
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "false"})
+    @patch("app.paypal_client.get_access_token")
+    def test_tracking_write_gate_blocks_before_oauth(self, mock_token):
+        with self.assertRaises(PayPalConfigurationError):
+            paypal_submit_tracking(self._tracking_order())
+        mock_token.assert_not_called()
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
+    @patch("app.paypal_client.get_access_token", return_value="test-token")
+    @patch("app.paypal_client.requests.post")
+    def test_other_carrier_requires_and_sends_carrier_name(
+        self, mock_post, mock_token
+    ):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"id": "PAYPALORDER123"}
+        mock_post.return_value = mock_response
+        order = self._tracking_order()
+        order["carrier"] = "OTHER"
+
+        with self.assertRaisesRegex(ValueError, "carrier_name_other"):
+            paypal_submit_tracking(order)
+        mock_post.assert_not_called()
+
+        order["carrier_name_other"] = "Delhivery"
+        paypal_submit_tracking(order)
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["carrier_name_other"], "Delhivery"
+        )
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
+    @patch("app.paypal_client.get_access_token", return_value="test-token")
+    @patch("app.paypal_client.requests.post")
+    def test_tracking_network_error_is_normalized(self, mock_post, mock_token):
+        mock_post.side_effect = requests.ConnectionError("network unavailable")
+        with self.assertRaisesRegex(RuntimeError, "Could not reach PayPal Sandbox"):
+            paypal_submit_tracking(self._tracking_order())
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
+    @patch("app.paypal_client.get_access_token", return_value="test-token")
+    @patch("app.paypal_client.requests.post")
+    def test_tracking_requires_valid_capture_and_order_ids(
+        self, mock_post, mock_token
+    ):
+        order = self._tracking_order()
+        order["paypal_capture_id"] = "CAPTURE/WRONG"
+        with self.assertRaisesRegex(ValueError, "capture ID"):
+            paypal_submit_tracking(order)
+        mock_post.assert_not_called()
 
 
 if __name__ == "__main__":
