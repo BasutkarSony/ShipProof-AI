@@ -996,6 +996,7 @@ def get_inspection_by_id(inspection_id: str):
             for p in inspection["photos"]
         ],
         "ai_result": inspection["ai_result"],
+        "review_history": inspection.get("review_history", []),
         "model_used": inspection["model_used"],
         "created_at": inspection["created_at"],
         "updated_at": inspection["updated_at"],
