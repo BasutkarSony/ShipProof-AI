@@ -705,6 +705,7 @@ export default function App() {
       {currentPath === '/inspections' && (
         <InspectionsReviewView
           orders={orders}
+          setOrders={setOrders}
           activeShipmentId={activeShipmentId}
           setActiveShipmentId={setActiveShipmentId}
           navigateTo={navigateTo}
@@ -2120,6 +2121,93 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
   }, [selectedShipment])
 
   // Format file size
+  async function handleHumanReview(decision) {
+    if (!inspectionDetail || reviewSaving) return
+    const notes = reviewNotes.trim()
+    if (decision !== 'APPROVED' && !notes) {
+      setReviewError('Add a note explaining the rejection or requested correction.')
+      return
+    }
+    setReviewSaving(true)
+    setReviewError('')
+    setReviewFeedback('')
+    try {
+      const res = await fetch(`${API_BASE}/api/inspections/${inspectionDetail.inspection_id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision,
+          reviewer_label: reviewerLabel.trim() || 'Merchant',
+          notes
+        })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail) || 'Could not save the review decision.')
+      }
+      setInspectionDetail(prev => ({
+        ...prev,
+        inspection_status: data.inspection_status,
+        review_history: data.review_history || [],
+        updated_at: data.reviewed_at
+      }))
+      setInspectionsList(prev => prev.map(item =>
+        item.inspection_id === data.inspection_id
+          ? { ...item, inspection_status: data.inspection_status }
+          : item
+      ))
+      setReviewNotes('')
+      setReviewFeedback(`Human review recorded: ${data.inspection_status.replaceAll('_', ' ')}.`)
+    } catch (err) {
+      setReviewError(err.message || 'Could not save the review decision.')
+    } finally {
+      setReviewSaving(false)
+    }
+  }
+
+  async function handleTrackingSubmit() {
+    if (!selectedShipment || trackingSubmitting) return
+    setTrackingSubmitting(true)
+    setTrackingError('')
+    setTrackingFeedback('')
+    try {
+      const res = await fetch(`${API_BASE}/api/shipments/${selectedShipment.order_id}/submit-tracking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tracking_number: trackingNumber.trim(),
+          carrier: trackingCarrier,
+          carrier_name_other: trackingCarrier === 'OTHER' ? trackingCarrierOther.trim() : '',
+          notify_payer: notifyPayer
+        })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail) || 'Could not submit tracking to PayPal.')
+      }
+      setOrders(prev => prev.map(order =>
+        order.order_id === selectedShipment.order_id
+          ? {
+              ...order,
+              tracking_number: data.tracking_number || trackingNumber.trim(),
+              carrier: data.carrier || trackingCarrier,
+              carrier_name_other: trackingCarrier === 'OTHER' ? trackingCarrierOther.trim() : 'UNASSIGNED',
+              status: 'SHIPPED',
+              tracking_submission_status: 'SUBMITTED',
+              paypal_tracking_submitted_at: data.submitted_at || order.paypal_tracking_submitted_at
+            }
+          : order
+      ))
+      setTrackingFeedback(data.already_submitted
+        ? 'This tracking number was already submitted to PayPal.'
+        : 'Tracking successfully submitted to PayPal Sandbox.')
+    } catch (err) {
+      setTrackingError(err.message || 'Could not submit tracking to PayPal.')
+    } finally {
+      setTrackingSubmitting(false)
+    }
+  }
+
   function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -2540,13 +2628,25 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
 }
 
 // ─── AI Inspection Results & Human Review View ────────────────────────────────
-function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, navigateTo }) {
+function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveShipmentId, navigateTo }) {
   const [manifest, setManifest] = useState(null)
   const [inspectionsList, setInspectionsList] = useState([])
   const [activeInspectionId, setActiveInspectionId] = useState(null)
   const [inspectionDetail, setInspectionDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [reviewerLabel, setReviewerLabel] = useState('Merchant')
+  const [reviewNotes, setReviewNotes] = useState('')
+  const [reviewSaving, setReviewSaving] = useState(false)
+  const [reviewFeedback, setReviewFeedback] = useState('')
+  const [reviewError, setReviewError] = useState('')
+  const [trackingNumber, setTrackingNumber] = useState('')
+  const [trackingCarrier, setTrackingCarrier] = useState('OTHER')
+  const [trackingCarrierOther, setTrackingCarrierOther] = useState('')
+  const [notifyPayer, setNotifyPayer] = useState(false)
+  const [trackingSubmitting, setTrackingSubmitting] = useState(false)
+  const [trackingFeedback, setTrackingFeedback] = useState('')
+  const [trackingError, setTrackingError] = useState('')
 
   const selectedShipment = useMemo(() => {
     return orders.find(o => o.order_id === activeShipmentId) || orders[0] || null
@@ -2554,6 +2654,18 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
 
   // Load manifest & inspections list whenever active shipment changes
   useEffect(() => {
+    setReviewNotes('')
+    setReviewFeedback('')
+    setReviewError('')
+    setTrackingNumber(selectedShipment?.tracking_number || '')
+    setTrackingCarrier(selectedShipment?.carrier || 'OTHER')
+    setTrackingCarrierOther(
+      selectedShipment?.carrier === 'OTHER' && selectedShipment?.carrier_name_other !== 'UNASSIGNED'
+        ? selectedShipment?.carrier_name_other || ''
+        : ''
+    )
+    setTrackingFeedback('')
+    setTrackingError('')
     let ignore = false
     async function fetchManifestAndInspections() {
       if (!selectedShipment) return
@@ -2650,6 +2762,14 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
   const addlObs = aiResult?.additional_observations || {}
   const imageQuality = aiResult?.image_quality || {}
   const engineMeta = aiResult?.engine_metadata || {}
+  const latestInspectionId = inspectionsList[0]?.inspection_id
+  const isLatestInspection = Boolean(inspectionDetail && inspectionDetail.inspection_id === latestInspectionId)
+  const canHumanReview = inspectionDetail?.inspection_status === 'PENDING_HUMAN_REVIEW'
+  const canSubmitTracking =
+    Boolean(selectedShipment?.checkout_order_id) &&
+    isLatestInspection &&
+    inspectionDetail?.inspection_status === 'APPROVED' &&
+    selectedShipment?.tracking_submission_status !== 'SUBMITTED'
 
   return (
     <main className="main" id="main-content">
@@ -2776,8 +2896,16 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
                     </div>
                     <div className="hr-banner-text">
                       <div className="hr-title-row">
-                        <strong>STATUS: PENDING_HUMAN_REVIEW</strong>
-                        <span className="pill pill-warn">HUMAN ACTION REQUIRED</span>
+                        <strong>STATUS: {inspectionDetail?.inspection_status || 'PENDING_HUMAN_REVIEW'}</strong>
+                        <span className={`pill ${inspectionDetail?.inspection_status === 'APPROVED' ? 'pill-pass' : inspectionDetail?.inspection_status === 'REJECTED' ? 'pill-blocked' : 'pill-warn'}`}>
+                          {inspectionDetail?.inspection_status === 'APPROVED'
+                            ? 'HUMAN REVIEW APPROVED'
+                            : inspectionDetail?.inspection_status === 'REJECTED'
+                            ? 'REJECTED'
+                            : inspectionDetail?.inspection_status === 'NEEDS_CORRECTION'
+                            ? 'CORRECTION REQUIRED'
+                            : 'HUMAN ACTION REQUIRED'}
+                        </span>
                       </div>
                       <p>
                         Visual AI inspection is an advisory assistance tool. By system safety policy,
@@ -3007,6 +3135,156 @@ function InspectionsReviewView({ orders, activeShipmentId, setActiveShipmentId, 
                             'Visual inspection only. Sealed container contents are not verified. This result requires human review before any shipment approval or rejection decision is made.'}
                         </p>
                       </div>
+
+                      <div className="manifest-items-card" style={{ marginTop: '18px' }}>
+                        <div className="items-card-header">
+                          <div>
+                            <h3>Merchant Review Decision</h3>
+                            <p>Review the original photos and AI observations. The decision is recorded separately; it never changes Gemini's result.</p>
+                          </div>
+                          <span className={`pill ${inspectionDetail.inspection_status === 'APPROVED' ? 'pill-pass' : inspectionDetail.inspection_status === 'REJECTED' ? 'pill-blocked' : 'pill-warn'}`}>
+                            {inspectionDetail.inspection_status.replaceAll('_', ' ')}
+                          </span>
+                        </div>
+
+                        {reviewFeedback && <div className="pass-callout" role="status">{reviewFeedback}</div>}
+                        {reviewError && <div className="findings-box issues" role="alert">{reviewError}</div>}
+
+                        {canHumanReview ? (
+                          <div style={{ padding: '16px' }}>
+                            <div className="form-group">
+                              <label htmlFor="reviewer-label">Reviewer label</label>
+                              <input
+                                id="reviewer-label"
+                                className="form-control"
+                                value={reviewerLabel}
+                                maxLength={100}
+                                onChange={e => setReviewerLabel(e.target.value)}
+                                placeholder="e.g. Merchant"
+                              />
+                              <small style={{ color: 'var(--text-muted)' }}>This is a demo label, not a verified login identity.</small>
+                            </div>
+                            <div className="form-group" style={{ marginTop: '12px' }}>
+                              <label htmlFor="review-notes">Review notes</label>
+                              <textarea
+                                id="review-notes"
+                                className="form-control"
+                                rows="3"
+                                maxLength={2000}
+                                value={reviewNotes}
+                                onChange={e => setReviewNotes(e.target.value)}
+                                placeholder="Record what you checked, or explain what needs to be corrected."
+                              />
+                            </div>
+                            <div className="remediation-actions" style={{ flexWrap: 'wrap', marginTop: '14px' }}>
+                              <button className="btn-primary" disabled={reviewSaving || !reviewerLabel.trim()} onClick={() => handleHumanReview('APPROVED')}>
+                                {reviewSaving ? 'Saving…' : 'Approve packing review'}
+                              </button>
+                              <button className="btn-secondary" disabled={reviewSaving || !reviewNotes.trim()} onClick={() => handleHumanReview('NEEDS_CORRECTION')}>
+                                Request correction
+                              </button>
+                              <button className="btn-secondary" disabled={reviewSaving || !reviewNotes.trim()} onClick={() => handleHumanReview('REJECTED')}>
+                                Reject inspection
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ padding: '16px' }}>
+                            <p>
+                              {inspectionDetail.inspection_status === 'APPROVED'
+                                ? 'A merchant approved this inspection. A new inspection is required to record another review.'
+                                : inspectionDetail.inspection_status === 'NEEDS_CORRECTION'
+                                ? 'Corrections are required. Return to the packing station, capture updated evidence, and submit a new inspection.'
+                                : 'This inspection was rejected. Submit a new inspection only after the underlying packing issue has been resolved.'}
+                            </p>
+                          </div>
+                        )}
+
+                        {(inspectionDetail.review_history || []).length > 0 && (
+                          <div style={{ padding: '0 16px 16px' }}>
+                            <h4>Review history</h4>
+                            {inspectionDetail.review_history.map(review => (
+                              <div key={review.id} className="evidence-record-item" style={{ marginTop: '8px' }}>
+                                <strong>{review.decision.replaceAll('_', ' ')}</strong>
+                                <p style={{ margin: '4px 0' }}>{review.notes || 'No additional notes.'}</p>
+                                <small>{review.reviewer_label} · {new Date(review.created_at).toLocaleString()}</small>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedShipment.checkout_order_id && (
+                        <div className="manifest-items-card" style={{ marginTop: '18px' }}>
+                          <div className="items-card-header">
+                            <div>
+                              <h3>Shipment Tracking &amp; PayPal Submission</h3>
+                              <p>Tracking is unlocked only after the latest inspection is approved. PayPal receives the saved order and capture IDs plus the purchased items.</p>
+                            </div>
+                            <span className={`pill ${selectedShipment.tracking_submission_status === 'SUBMITTED' ? 'pill-pass' : 'pill-unchecked'}`}>
+                              {(selectedShipment.tracking_submission_status || 'NOT_SUBMITTED').replaceAll('_', ' ')}
+                            </span>
+                          </div>
+
+                          {selectedShipment.tracking_submission_status === 'SUBMITTED' ? (
+                            <div className="pass-callout" role="status">
+                              Tracking {selectedShipment.tracking_number} has been submitted to PayPal Sandbox.
+                              {selectedShipment.paypal_tracking_submitted_at && <small style={{ display: 'block', marginTop: '4px' }}>{new Date(selectedShipment.paypal_tracking_submitted_at).toLocaleString()}</small>}
+                            </div>
+                          ) : canSubmitTracking ? (
+                            <div style={{ padding: '16px' }}>
+                              {trackingFeedback && <div className="pass-callout" role="status">{trackingFeedback}</div>}
+                              {trackingError && <div className="findings-box issues" role="alert">{trackingError}</div>}
+                              {selectedShipment.tracking_submission_status === 'FAILED' && (
+                                <p className="findings-box warnings">The last PayPal submission failed. Check the details and retry. PayPal may already have received a request if the connection failed after sending; its Orders v2 tracking endpoint supports idempotent retries using the same capture and tracking IDs.</p>
+                              )}
+                              <div className="interactive-form-grid">
+                                <div className="form-group">
+                                  <label htmlFor="tracking-number">Carrier tracking number</label>
+                                  <input id="tracking-number" className="form-control" maxLength={64} value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} placeholder="Enter the carrier tracking number" />
+                                </div>
+                                <div className="form-group">
+                                  <label htmlFor="tracking-carrier">Carrier</label>
+                                  <select id="tracking-carrier" className="form-control" value={trackingCarrier} onChange={e => setTrackingCarrier(e.target.value)}>
+                                    <option value="FEDEX">FedEx</option>
+                                    <option value="UPS">UPS</option>
+                                    <option value="USPS">USPS</option>
+                                    <option value="DHL">DHL</option>
+                                    <option value="OTHER">Other carrier</option>
+                                  </select>
+                                </div>
+                                {trackingCarrier === 'OTHER' && (
+                                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                    <label htmlFor="tracking-carrier-other">Carrier name</label>
+                                    <input id="tracking-carrier-other" className="form-control" maxLength={64} value={trackingCarrierOther} onChange={e => setTrackingCarrierOther(e.target.value)} placeholder="e.g. Delhivery, Blue Dart" />
+                                  </div>
+                                )}
+                                <div className="form-checkbox-row">
+                                  <input id="notify-payer" type="checkbox" checked={notifyPayer} onChange={e => setNotifyPayer(e.target.checked)} />
+                                  <label htmlFor="notify-payer" style={{ cursor: 'pointer' }}>Email the buyer PayPal tracking details</label>
+                                </div>
+                              </div>
+                              <div className="remediation-actions" style={{ marginTop: '14px' }}>
+                                <button className="btn-primary" disabled={trackingSubmitting || !trackingNumber.trim() || (trackingCarrier === 'OTHER' && !trackingCarrierOther.trim())} onClick={handleTrackingSubmit}>
+                                  {trackingSubmitting ? 'Submitting to PayPal…' : 'Submit tracking to PayPal'}
+                                </button>
+                              </div>
+                              <small style={{ display: 'block', marginTop: '10px', color: 'var(--text-muted)' }}>
+                                Sandbox only. The local PayPal tracking write gate must be explicitly enabled before any external submission.
+                              </small>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '16px' }}>
+                              {trackingError && <div className="findings-box issues" role="alert">{trackingError}</div>}
+                              <p>
+                                {inspectionDetail.inspection_status !== 'APPROVED'
+                                  ? 'Approve the latest inspection before submitting shipment tracking.'
+                                  : 'The latest inspection must be the selected inspection, and the local PayPal write gate must be enabled.'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
