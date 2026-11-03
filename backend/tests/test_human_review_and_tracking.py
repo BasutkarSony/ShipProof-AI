@@ -22,7 +22,7 @@ from app.store import (
     get_inspection,
     get_shipment_by_order_id,
 )
-from app.main import review_packing_inspection, submit_shipment_tracking
+from app.main import (\n    review_packing_inspection,\n    submit_shipment_tracking,\n    get_inspection_by_id,\n)
 
 
 class HumanReviewAndTrackingTests(unittest.TestCase):
@@ -104,6 +104,27 @@ class HumanReviewAndTrackingTests(unittest.TestCase):
         self.assertEqual(len(saved["review_history"]), 1)
         self.assertEqual(saved["review_history"][0]["decision"], "APPROVED")
         self.assertEqual(saved["review_history"][0]["reviewer_label"], "Merchant")
+        detail = get_inspection_by_id(self.inspection["id"])
+        self.assertEqual(detail["review_history"][0]["notes"], "Visible items match the finalized manifest.")
+
+    def test_only_latest_inspection_can_be_reviewed(self):
+        newer_inspection = self._create_inspection()
+        self.assertNotEqual(newer_inspection["id"], self.inspection["id"])
+
+        with self.assertRaises(HTTPException) as ctx:
+            review_packing_inspection(
+                self.inspection["id"],
+                {
+                    "decision": "APPROVED",
+                    "reviewer_label": "Merchant",
+                    "notes": "This is an older inspection.",
+                },
+            )
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(
+            get_inspection(self.inspection["id"])["inspection_status"],
+            "PENDING_HUMAN_REVIEW",
+        )
 
     def test_rejection_and_correction_require_explanation(self):
         with self.assertRaises(HTTPException) as ctx:
