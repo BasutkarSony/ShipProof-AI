@@ -115,11 +115,23 @@ class AIAnalyzerTests(unittest.TestCase):
         }
         result = analyze_shipment_evidence(order)
         preview = result["paypal_payload_preview"]
-        self.assertEqual(preview["endpoint"], "POST /v1/shipping/trackers-batch")
-        self.assertEqual(len(preview["trackers"]), 1)
-        self.assertEqual(preview["trackers"][0]["transaction_id"], "8MC585209K746392H")
-        self.assertEqual(preview["trackers"][0]["tracking_number"], "781234567890")
-        self.assertEqual(preview["submission_safety_status"], "DISABLED_BY_DEFAULT")
+        self.assertEqual(
+            preview["endpoint"],
+            "POST /v2/checkout/orders/{paypal_order_id}/track",
+        )
+        self.assertEqual(
+            preview["request_body"],
+            {
+                "capture_id": "8MC585209K746392H",
+                "tracking_number": "781234567890",
+                "carrier": "FEDEX",
+                "notify_payer": False,
+            },
+        )
+        self.assertEqual(
+            preview["submission_safety_status"], "DISABLED_BY_DEFAULT"
+        )
+        self.assertIn("human-approved", preview["safety_gate_note"])
 
     def test_ord_1005_scenario_missing_signature_explicitly_flagged(self):
         order = {
