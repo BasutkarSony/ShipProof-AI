@@ -61,48 +61,82 @@ def get_access_token() -> str:
 
 
 def submit_tracking(order: dict) -> dict:
+    """Add tracking to the exact Orders v2 order and completed capture we stored."""
     if not submissions_enabled():
         raise PayPalConfigurationError(
             "PayPal tracking submission is disabled. Set "
-            "PAYPAL_TRACKING_SUBMISSION_ENABLED=true only after approving a Sandbox write."
+            "PAYPAL_TRACKING_SUBMISSION_ENABLED=true only for an intentional Sandbox test."
         )
 
-    token = get_access_token()
+    paypal_order_id = str(order.get("paypal_order_id", "")).strip()
+    capture_id = str(order.get("paypal_capture_id", "")).strip()
+    tracking_number = str(order.get("tracking_number", "")).strip()
+    carrier = str(order.get("carrier", "")).strip().upper()
+
+    if not paypal_order_id or not paypal_order_id.isalnum() or len(paypal_order_id) > 36:
+        raise ValueError("A valid stored PayPal Orders v2 order ID is required.")
+    if not capture_id or not capture_id.isalnum() or len(capture_id) > 50:
+        raise ValueError("A valid stored PayPal capture ID is required.")
+    if not tracking_number or len(tracking_number) > 64:
+        raise ValueError("Enter a tracking number between 1 and 64 characters.")
+    if carrier not in {"FEDEX", "UPS", "USPS", "DHL", "OTHER"}:
+        raise ValueError("Choose FEDEX, UPS, USPS, DHL, or OTHER as the carrier.")
+
     tracker = {
-        "transaction_id": str(order.get("transaction_id", "")).strip(),
-        "tracking_number": str(order.get("tracking_number", "")).strip(),
-        "status": str(order.get("status", "SHIPPED")).strip().upper(),
-        "carrier": str(order.get("carrier", "")).strip().upper(),
+        "capture_id": capture_id,
+        "tracking_number": tracking_number,
+        "carrier": carrier,
+        "notify_payer": order.get("notify_payer", False),
     }
-    if order.get("shipped_date"):
-        tracker["shipment_date"] = str(order["shipped_date"]).strip()
-    if tracker["carrier"] == "OTHER":
+    if not isinstance(tracker["notify_payer"], bool):
+        raise ValueError("notify_payer must be true or false.")
+
+    if carrier == "OTHER":
         carrier_name = str(order.get("carrier_name_other", "")).strip()
         if not carrier_name:
             raise ValueError(
                 "When carrier is OTHER, provide carrier_name_other (the carrier's name)."
             )
-        tracker["carrier_name_other"] = carrier_name
+        tracker["carrier_name_other"] = carrier_name[:64]
 
+    items = order.get("items") or []
+    if items:
+        paypal_items = []
+        for item in items:
+            quantity = item.get("quantity")
+            if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+                raise ValueError("Each tracking item must have a positive integer quantity.")
+            name = str(item.get("name", "")).strip()
+            if not name:
+                raise ValueError("Each tracking item must have a product name.")
+            paypal_item = {"name": name[:127], "quantity": str(quantity)}
+            sku = str(item.get("sku", "")).strip()
+            if sku:
+                paypal_item["sku"] = sku[:50]
+            paypal_items.append(paypal_item)
+        tracker["items"] = paypal_items
+
+    token = get_access_token()
     try:
         response = requests.post(
-            f"{SANDBOX_BASE}/v1/shipping/trackers-batch",
+            f"{SANDBOX_BASE}/v2/checkout/orders/{paypal_order_id}/track",
             headers={
                 "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
                 "Content-Type": "application/json",
             },
-            json={"trackers": [tracker]},
+            json=tracker,
             timeout=30,
         )
     except requests.RequestException as exc:
-        raise RuntimeError("Could not reach PayPal Sandbox to submit tracking.") from exc
+        raise RuntimeError("Could not reach PayPal Sandbox to submit order tracking.") from exc
+
     try:
         body = response.json()
     except ValueError:
         body = {"message": "PayPal returned a non-JSON response."}
 
     if not response.ok:
-        # Surface PayPal's response details, but never credentials/tokens.
         raise RuntimeError({
             "http_status": response.status_code,
             "paypal_response": body,
