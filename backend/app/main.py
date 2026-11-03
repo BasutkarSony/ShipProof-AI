@@ -613,7 +613,7 @@ def submit_shipment_tracking(shipment_order_id: str, payload: dict):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
-        # Keep the carrier details editable so the merchant can retry after a transient failure.
+        # Preserve the exact tracker details; the result may be uncertain if the request timed out.
         update_shipment(
             shipment_order_id,
             tracking_number=tracking_number,
