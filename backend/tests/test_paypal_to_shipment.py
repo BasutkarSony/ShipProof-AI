@@ -101,7 +101,23 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 "id": "PAYPAL-ORDER-789",
                 "links": [{"rel": "approve", "href": "https://example.com/approve"}],
             }
-            result = self._create_mock_order()
+            result = create_checkout_order(
+                {
+                    "items": [
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
+                    ],
+                    "currency": "USD",
+                    "buyer_name": "Demo Buyer",
+                    "shipping_address": {
+                        "address_line_1": "123 Sample Street",
+                        "city": "Austin",
+                        "state": "TX",
+                        "postal_code": "78701",
+                        "country_code": "US",
+                    },
+                }
+            )
 
         self.assertEqual(result["total"], "50.00")
         args = mock_create.call_args
