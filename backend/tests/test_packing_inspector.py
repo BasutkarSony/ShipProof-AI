@@ -469,7 +469,10 @@ class InspectionAPITests(unittest.TestCase):
 
     def _run_async(self, coro):
         import asyncio
-        return asyncio.get_event_loop().run_until_complete(coro)
+
+        # Give each synchronous unittest invocation its own event loop.
+        # Do not depend on a loop left behind by another test module.
+        return asyncio.run(coro)
 
     # -- POST /api/manifests/{manifest_id}/inspections -----------------------
 
@@ -814,7 +817,10 @@ class BoundedUploadTests(unittest.TestCase):
 
     def _run_async(self, coro):
         import asyncio
-        return asyncio.get_event_loop().run_until_complete(coro)
+
+        # Give each synchronous unittest invocation its own event loop.
+        # Do not depend on a loop left behind by another test module.
+        return asyncio.run(coro)
 
     def _make_upload_chunked(self, data: bytes, filename: str = "photo.jpg"):
         """Streaming upload that returns data in 64 KB chunks."""
@@ -911,7 +917,10 @@ class CleanupOnFailureTests(unittest.TestCase):
 
     def _run_async(self, coro):
         import asyncio
-        return asyncio.get_event_loop().run_until_complete(coro)
+
+        # Give each synchronous unittest invocation its own event loop.
+        # Do not depend on a loop left behind by another test module.
+        return asyncio.run(coro)
 
     def _finalized_manifest(self) -> dict:
         created = self.create_shipment_manifest(
