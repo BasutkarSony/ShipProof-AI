@@ -555,8 +555,8 @@ export default function App() {
       }
       const data = await res.json()
 
-      sessionStorage.setItem('shipproof_order_id', data.order_id)
-      sessionStorage.setItem('shipproof_paypal_order_id', data.paypal_order_id)
+      sessionStorage.setItem('parcelproof_order_id', data.order_id)
+      sessionStorage.setItem('parcelproof_paypal_order_id', data.paypal_order_id)
 
       if (data.approval_url) {
         window.location.href = data.approval_url
@@ -571,7 +571,7 @@ export default function App() {
   }
 
   async function handleCaptureReturn() {
-    const orderId = sessionStorage.getItem('shipproof_order_id')
+    const orderId = sessionStorage.getItem('parcelproof_order_id')
     if (!orderId) {
       setCaptureError('No order found in session. Please start a new checkout.')
       return
@@ -591,8 +591,8 @@ export default function App() {
       }
       const data = await res.json()
       if (data.payment_status === 'PAID' || data.already_captured) {
-        sessionStorage.removeItem('shipproof_order_id')
-        sessionStorage.removeItem('shipproof_paypal_order_id')
+        sessionStorage.removeItem('parcelproof_order_id')
+        sessionStorage.removeItem('parcelproof_paypal_order_id')
       }
       setCaptureResult(data)
 
@@ -1469,7 +1469,7 @@ function ShipmentReviewMain({
 
       <footer>
         <div>
-          <strong>SHIPPROOF AI</strong> · Pre-Submission Shipment Evidence Control
+          <strong>PARCELPROOF AI</strong> · Pre-Submission Shipment Evidence Control
         </div>
         <p>
           Deterministic checks and AI analysis assist in evidence quality; official dispute outcomes are determined by PayPal.
