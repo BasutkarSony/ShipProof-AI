@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import requests
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -12,6 +13,7 @@ from fastapi import HTTPException
 
 import app.store as store
 from app.store import init_db, create_order, get_order
+from app.paypal_client import create_paypal_order as paypal_create_order
 from app.main import create_checkout_order as _create_checkout_order, capture_checkout_order
 
 
@@ -849,6 +851,64 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertEqual(mock_capture.call_count, 1)
 
     # ---------- validation (delegated to store) ----------
+
+    @patch(
+        "app.paypal_client.requests.post",
+        side_effect=requests.ConnectionError("network unavailable"),
+    )
+    def test_paypal_order_creation_normalizes_network_failure(self, mock_post):
+        with self.assertRaisesRegex(
+            RuntimeError, "Could not reach PayPal Sandbox to create checkout"
+        ):
+            paypal_create_order(
+                "test-token",
+                1800,
+                "USD",
+                items=[
+                    {
+                        "sku": "MUG-CER-001",
+                        "name": "Ceramic Coffee Mug",
+                        "quantity": 1,
+                        "unit_price": "18.00",
+                    }
+                ],
+                buyer_name="Demo Test Buyer",
+                shipping_address={
+                    "address_line_1": "123 Test Street",
+                    "city": "Austin",
+                    "postal_code": "78701",
+                    "country_code": "US",
+                },
+            )
+        mock_post.assert_called_once()
+
+    @patch("app.main.create_paypal_order")
+    @patch("app.main.get_access_token", return_value="test-token")
+    def test_checkout_network_failure_marks_local_order_failed(
+        self, mock_token, mock_create
+    ):
+        mock_create.side_effect = RuntimeError(
+            "Could not reach PayPal Sandbox to create checkout."
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            create_checkout_order(
+                {
+                    "items": [{"sku": "MUG-CER-001", "quantity": 1}],
+                    "currency": "USD",
+                }
+            )
+
+        self.assertEqual(ctx.exception.status_code, 502)
+        conn = store._connect()
+        try:
+            rows = conn.execute(
+                "SELECT payment_status, paypal_capture_id FROM orders"
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["payment_status"], "FAILED")
+            self.assertIsNone(rows[0]["paypal_capture_id"])
+        finally:
+            conn.close()
 
     def test_create_checkout_order_empty_items_rejected(self):
         with self.assertRaises(ValueError):

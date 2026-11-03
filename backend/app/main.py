@@ -327,7 +327,7 @@ def capture_checkout_order(order_id: str, payload: dict):
         raise HTTPException(
             status_code=422,
             detail={
-                "message": "PayPal capture currency is not USD.",
+                "message": "PayPal capture currency does not match the checkout order currency.",
                 "captured_currency": captured_currency,
             },
         )

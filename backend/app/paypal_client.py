@@ -38,13 +38,16 @@ def get_access_token() -> str:
             "PayPal Sandbox credentials are not configured. Add them to backend/.env."
         )
 
-    response = requests.post(
-        f"{SANDBOX_BASE}/v1/oauth2/token",
-        auth=(client_id, client_secret),
-        headers={"Accept": "application/json", "Accept-Language": "en_US"},
-        data={"grant_type": "client_credentials"},
-        timeout=20,
-    )
+    try:
+        response = requests.post(
+            f"{SANDBOX_BASE}/v1/oauth2/token",
+            auth=(client_id, client_secret),
+            headers={"Accept": "application/json", "Accept-Language": "en_US"},
+            data={"grant_type": "client_credentials"},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Could not reach PayPal Sandbox to authenticate.") from exc
     if not response.ok:
         # Do not return or log credentials or access tokens.
         raise RuntimeError(
@@ -198,16 +201,19 @@ def create_paypal_order(
         },
     }
 
-    response = requests.post(
-        f"{SANDBOX_BASE}/v2/checkout/orders",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-        },
-        json=body,
-        timeout=30,
-    )
+    try:
+        response = requests.post(
+            f"{SANDBOX_BASE}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+            },
+            json=body,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Could not reach PayPal Sandbox to create checkout.") from exc
     try:
         response_body = response.json()
     except ValueError:
@@ -229,11 +235,14 @@ def capture_paypal_order(token: str, order_id: str, request_id: str | None = Non
     if request_id:
         headers["PayPal-Request-Id"] = request_id
 
-    response = requests.post(
-        f"{SANDBOX_BASE}/v2/checkout/orders/{order_id}/capture",
-        headers=headers,
-        timeout=30,
-    )
+    try:
+        response = requests.post(
+            f"{SANDBOX_BASE}/v2/checkout/orders/{order_id}/capture",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Could not reach PayPal Sandbox to capture this order.") from exc
     try:
         response_body = response.json()
     except ValueError:
