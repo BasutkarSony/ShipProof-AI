@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 // Routes:
 //   /                    Shipment Evidence Review Dashboard
 //   /manifests           Shipment Management & Product Manifests
-//   /packing             Packing Station & Gemini Inspection
+//   /packing             Packing Station & AI Vision Inspection
 //   /inspections         AI Inspection Results & Human Review
 //   /checkout            PayPal Sandbox Buyer Checkout
 //   /checkout/return     PayPal Payment Return / Capture
@@ -182,16 +182,16 @@ function Sidebar({ currentPath, ordersCount, navigateTo }) {
       <div className="side-card">
         <div className="side-card-header">
           <span className="pulse" aria-hidden="true"></span>
-          <span>Policy Engine Active</span>
+          <span>Policy Checks Active</span>
         </div>
         <div className="side-card-body">
-          Deterministic NLP heuristics evaluate shipments against official PayPal Seller Protection guidelines.
+          Deterministic rules and text heuristics flag evidence gaps against selected PayPal Seller Protection guidance. PayPal makes its own eligibility decisions.
         </div>
       </div>
 
       <div className="sidebar-footer">
         <strong>PAYPAL AI HACKATHON 2026</strong>
-        <p>Pre-submission verification · Zero-hallucination compliance · Safe sandbox tracking.</p>
+        <p>Evidence checks · AI-assisted inspection · Human-reviewed decisions.</p>
       </div>
     </aside>
   )
@@ -1160,11 +1160,11 @@ function ShipmentReviewMain({
 
       <section className="architecture-banner">
         <div className="arch-info">
-          <div className="arch-badge">AUDITABLE ENGINE</div>
+          <div className="arch-badge">DETERMINISTIC RULES</div>
           <div className="arch-text">
             <strong>Deterministic NLP &amp; PayPal Policy Rules Engine</strong>
             <p>
-              Zero-hallucination compliance architecture: evaluates carrier tracking regexes, milestone timelines, destination matching, and PayPal's $750+ signature threshold.
+              Deterministic checks review carrier formats, shipment timelines, destination consistency, and selected signature guidance. Results are advisory, not a PayPal eligibility decision.
             </p>
           </div>
         </div>
@@ -2335,7 +2335,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
       setInspectionResult(data)
       setProcessingStatus('complete')
     } catch (err) {
-      setUploadError(err.message || 'Inspection request failed. Make sure the backend and Gemini API are configured.')
+      setUploadError(err.message || 'Inspection request failed. Check the backend and configure GEMINI_API_KEY or OPENAI_API_KEY.')
     } finally {
       setUploading(false)
     }
@@ -2354,7 +2354,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
         <div className="breadcrumb">
           <span>Workspace</span>
           <span>/</span>
-          <strong>Packing Station &amp; Gemini Inspection</strong>
+          <strong>Packing Station &amp; AI Vision Inspection</strong>
         </div>
         <div className="topbar-actions">
           <button className="btn-secondary" onClick={() => navigateTo('/manifests')}>
@@ -2439,7 +2439,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                   <h3>No Product Manifest Found</h3>
                   <p style={{ maxWidth: '460px', margin: '0 auto' }}>
                     Shipment <strong>{selectedShipment.order_id}</strong> does not have a manifest yet.
-                    A finalized product manifest is required before uploading packing photos for Gemini inspection.
+                    A finalized product manifest is required before uploading packing photos for AI vision inspection.
                   </p>
                   <button
                     className="btn-primary"
@@ -2511,7 +2511,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                   {inspectionResult && (
                     <div className="pass-callout" role="status" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
-                        <strong>✓ Gemini Packing Inspection Completed!</strong>
+                        <strong>✓ AI Packing Inspection Completed!</strong>
                         <p style={{ margin: '4px 0 0', fontSize: '11px' }}>
                           Status: <strong>{inspectionResult.inspection_status}</strong> · {inspectionResult.photo_count} photos evaluated with model <code>{inspectionResult.model_used}</code>.
                         </p>
@@ -2598,7 +2598,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                           <strong>
                             {processingStatus === 'uploading'
                               ? 'Uploading photographs to private storage…'
-                              : 'Gemini Vision AI inspecting shipment contents against manifest…'}
+                              : 'AI vision inspecting shipment contents against the manifest…'}
                           </strong>
                           <p>
                             Validating image magic bytes, extracting item counts, checking for visible packaging defects, and binding inspection to SHA-256 fingerprint snapshot.
@@ -2625,7 +2625,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
                       >
                         {uploading
                           ? 'Processing AI Inspection…'
-                          : `Run Gemini Inspection (${selectedPhotos.length} Photo${selectedPhotos.length === 1 ? '' : 's'})`}
+                          : `Run AI Vision Inspection (${selectedPhotos.length} Photo${selectedPhotos.length === 1 ? '' : 's'})`}
                       </button>
                     </div>
                   </div>
@@ -2842,7 +2842,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
               {/* Shipment Header */}
               <div className="manifest-header-card">
                 <div className="m-header-left">
-                  <div className="eyebrow">PERSISTED GEMINI PACKING INSPECTION</div>
+                  <div className="eyebrow">PERSISTED AI PACKING INSPECTION</div>
                   <h2>{selectedShipment.order_id}</h2>
                   <p>
                     Carrier: <strong>{selectedShipment.carrier || 'Unspecified'}</strong> ·
@@ -2877,7 +2877,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                   </div>
                   <h3>No Manifest or Inspections Found</h3>
                   <p style={{ maxWidth: '460px', margin: '0 auto' }}>
-                    Shipment <strong>{selectedShipment.order_id}</strong> does not have a manifest yet. Create and finalize a manifest to run Gemini packing inspections.
+                    Shipment <strong>{selectedShipment.order_id}</strong> does not have a manifest yet. Create and finalize a manifest to run AI packing inspections.
                   </p>
                   <button
                     className="btn-primary"
@@ -2926,7 +2926,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                       </div>
                       <p>
                         Visual AI inspection is an advisory assistance tool. By system safety policy,
-                        <strong> Gemini never automatically approves shipments</strong>. Merchant reviewers must inspect
+                        <strong> AI never automatically approves shipments</strong>. Merchant reviewers must inspect
                         the observed contents, discrepancies, packaging damage, and photo evidence below before making shipping decisions.
                       </p>
                     </div>
@@ -2970,7 +2970,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                       {aiResult?.inspection_summary && (
                         <div className="ai-summary-callout">
                           <div className="summary-callout-header">
-                            <span className="eyebrow" style={{ color: 'var(--cobalt)', margin: 0 }}>GEMINI INSPECTION SUMMARY</span>
+                            <span className="eyebrow" style={{ color: 'var(--cobalt)', margin: 0 }}>AI VISION INSPECTION SUMMARY</span>
                             <span className={`quality-badge q-${(imageQuality.overall || 'fair').toLowerCase()}`}>
                               Image Quality: {imageQuality.overall || 'UNKNOWN'}
                             </span>
@@ -2984,7 +2984,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                         <div className="items-card-header">
                           <div>
                             <h3>Expected vs. Observed Shipment Goods Audit</h3>
-                            <p>Actual Gemini vision observations matched against declared goods in the manifest fingerprint.</p>
+                            <p>AI vision observations are compared with the declared goods in the finalized manifest snapshot.</p>
                           </div>
                           <span className="stat-pill">{itemChecks.length} Items Checked</span>
                         </div>
@@ -3145,7 +3145,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                       <div className="engine-disclosure-card">
                         <div className="disclosure-head">
                           <strong>AI Engine Specification: {engineMeta.type || 'GEMINI_VISION_LLM'} ({engineMeta.model || inspectionDetail.model_used})</strong>
-                          <span className="hallucination-warning">Zero-Hallucination: False (LLM Inference)</span>
+                          <span className="hallucination-warning">LLM output · Not guaranteed error-free</span>
                         </div>
                         <p className="disclosure-body">
                           {engineMeta.disclaimer ||
@@ -3157,7 +3157,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                         <div className="items-card-header">
                           <div>
                             <h3>Merchant Review Decision</h3>
-                            <p>Review the original photos and AI observations. The decision is recorded separately; it never changes Gemini's result.</p>
+                            <p>Review the original photos and AI observations. The decision is recorded separately and never overwrites the model's observations.</p>
                           </div>
                           <span className={`pill ${inspectionDetail.inspection_status === 'APPROVED' ? 'pill-pass' : inspectionDetail.inspection_status === 'REJECTED' ? 'pill-blocked' : 'pill-warn'}`}>
                             {inspectionDetail.inspection_status.replaceAll('_', ' ')}
