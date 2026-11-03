@@ -441,8 +441,11 @@ def _is_retryable_gemini_error(exc: Exception) -> bool:
 def _is_gemini_unavailable(exc: Exception) -> bool:
     code = getattr(exc, "code", None)
     message = str(exc).upper()
-    return code in (429, 503) or any(
-        token in message for token in ("429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")
+    return code in (429, 500, 502, 503, 504) or any(
+        token in message for token in (
+            "429", "500", "502", "503", "504",
+            "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL",
+        )
     )
 
 
