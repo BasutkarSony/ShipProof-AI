@@ -2,9 +2,9 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import './style.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://127.0.0.1:8000')
 
-// ─── ShipProof AI — unified shell across all routes ───────────────────────────
+// ─── ParcelProof AI — unified shell across all routes ───────────────────────────
 // Routes:
 //   /                    Shipment Evidence Review Dashboard
 //   /manifests           Shipment Management & Product Manifests
@@ -127,7 +127,7 @@ function Sidebar({ currentPath, ordersCount, navigateTo }) {
       <div className="brand">
         <div className="brand-icon" aria-hidden="true">S</div>
         <div className="brand-title">
-          <strong>ShipProof AI</strong>
+          <strong>ParcelProof AI</strong>
           <small>PAYPAL EVIDENCE CONTROL</small>
         </div>
       </div>
@@ -1123,7 +1123,7 @@ function ShipmentReviewMain({
         </div>
       </header>
 
-      <section className="hero" aria-label="ShipProof AI overview">
+      <section className="hero" aria-label="ParcelProof AI overview">
         <div className="hero-copy">
           <div className="eyebrow">
             <span aria-hidden="true">●</span> PRE-SUBMISSION SHIPMENT EVIDENCE &amp; SELLER PROTECTION
