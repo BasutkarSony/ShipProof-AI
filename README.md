@@ -42,7 +42,8 @@ It provides a centralized workflow for reviewing shipment data, identifying evid
 | Packing inspection | Uses Gemini for visual observations while keeping the decision with a human reviewer. |
 | Shipment linkage | Carries the local order, PayPal order, capture and buyer delivery details into one shipment record. |
 | Evidence review | Helps merchants examine shipment data and identify evidence-quality gaps. |
-| Tracking preparation | Prepares shipment tracking information with external writes disabled by default. |
+| Human packing decision | Records an append-only merchant approval, rejection or correction request separately from Gemini's observations. |
+| PayPal tracking submission | Sends tracking to the matching Orders v2 order and capture only after the latest inspection is approved; external writes are disabled by default. |
 
 ## How it works
 
@@ -57,8 +58,9 @@ flowchart TD
     G --> H["Upload packing photographs"]
     H --> I["Gemini visual inspection"]
     I --> J["Human review"]
-    J --> K["Add carrier and tracking"]
-    K --> L["Prepare matching PayPal tracking update"]
+    J --> K["Human decision recorded"]
+    K --> L["Add carrier and tracking"]
+    L --> M["Submit tracking to matching PayPal order"]
 ```
 
 ## Core workflow
@@ -79,9 +81,13 @@ The merchant reviews the purchased items, quantities, SKU, item value and fragil
 
 Packing staff upload photographs for Gemini visual inspection. The model reports visible observations and uncertainty; it cannot verify the contents of a sealed package or make the merchant's final decision. Every inspection remains pending human review.
 
-### 05 — Add shipment tracking and review evidence
+### 05 — Record the human decision
 
-The merchant records the carrier and tracking number, then reviews the associated payment, order, manifest and packing evidence. Tracking submission is a separate action and stays disabled by default. Evidence-quality checks are advisory and do not determine official PayPal Seller Protection eligibility.
+A merchant records APPROVED, REJECTED or NEEDS_CORRECTION, along with a reviewer label and notes. The review history is stored separately from Gemini's AI result. A new inspection must be submitted after corrections; a reviewed inspection cannot be overwritten.
+
+### 06 — Submit carrier tracking
+
+For a persistent PayPal-paid shipment, the merchant enters the carrier and tracking number after the latest inspection is approved. The backend obtains the PayPal order ID, capture ID and purchased item lines from the stored checkout record; it does not trust client-supplied payment identifiers. Tracking is sent to the PayPal Orders v2 Add Tracking endpoint. The local write gate stays disabled until explicitly enabled for a Sandbox test. Evidence-quality checks are advisory and do not determine official PayPal Seller Protection eligibility.
 
 ## Technology stack
 
@@ -105,7 +111,8 @@ flowchart LR
     V --> R["Validation Results"]
     A --> R
     P --> S["OAuth Verification"]
-    P --> T["Payload Preview"]
+    P --> T["Orders v2 Tracking Submission"]
+    API --> H["Human Review Store"]
     R --> UI
     S --> UI
     T --> UI
@@ -119,73 +126,64 @@ flowchart LR
 - Node.js and npm.
 - Git.
 
+The commands below use **Command Prompt (CMD)**, including the integrated terminal in VS Code.
+
 ### 1. Clone the repository
 
-```powershell
+\`\`\`cmd
 git clone https://github.com/BasutkarSony/ShipProof-AI.git
 cd ShipProof-AI
-```
-
-Replace `BasutkarSony` with the GitHub repository owner.
+\`\`\`
 
 ### 2. Set up the backend
 
-Open a PowerShell terminal:
-
-```powershell
+\`\`\`cmd
 cd backend
-
 python -m venv .venv
-
-.\.venv\Scripts\Activate.ps1
-
+.venv\Scripts\activate.bat
 python -m pip install -r requirements.txt
-```
+copy .env.example .env
+\`\`\`
 
-Start the backend:
+Open \`backend/.env\` in VS Code and add your PayPal Sandbox credentials. Keep this file private and do not commit it.
 
-```powershell
+Start the backend in this terminal:
+
+\`\`\`cmd
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+\`\`\`
 
-Backend:
-
-`http://127.0.0.1:8000`
+Backend: \`http://127.0.0.1:8000\`
 
 ### 3. Set up the frontend
 
-Open a second terminal:
+Open a **second CMD terminal** in VS Code:
 
-```powershell
+\`\`\`cmd
 cd frontend
-
 npm ci
-
 npm run dev
-```
+\`\`\`
 
-Frontend:
-
-`http://localhost:5173`
+Frontend: \`http://localhost:5173\`
 
 ### 4. Configure PayPal Sandbox
 
-For Sandbox connection verification:
-
 1. Create or use a PayPal Sandbox REST application.
-2. Copy `backend/.env.example` to `backend/.env`.
-3. Add the required Sandbox credentials using the variable names provided in the example file.
-4. Restart the backend if necessary.
+2. Add the Sandbox Client ID and Secret to \`backend/.env\`.
+3. Set \`FRONTEND_URL=http://localhost:5173\`.
+4. Keep \`PAYPAL_TRACKING_SUBMISSION_ENABLED=false\` for initial testing.
+5. Restart the backend after changing environment variables.
 
-**Never commit or share your actual `.env` file or API credentials.**
+**Never commit or share your actual \`.env\` file or API credentials.**
 
 ## PayPal integration and safety
 
-ShipProof AI includes a PayPal Sandbox authentication-verification workflow and a tracking payload preview.
+Checkout and capture use PayPal Orders v2. The tracking integration uses the matching Orders v2 endpoint:
 
-The external tracking endpoint used for payload preparation is:
+`POST /v2/checkout/orders/{id}/track`
 
-`POST /v1/shipping/trackers-batch`
+The backend uses the saved PayPal order ID, its completed capture ID and item lines from the paid checkout. The route rejects sample shipments, unpaid orders, unfinalized manifests and shipments whose latest packing inspection has not been approved by a human reviewer.
 
 Tracking writes are disabled by default:
 
@@ -193,19 +191,13 @@ Tracking writes are disabled by default:
 PAYPAL_TRACKING_SUBMISSION_ENABLED=false
 ```
 
-The safeguards distinguish between:
+Keep this setting false while checking the app. For an intentional Sandbox tracking test, enable the gate locally only after confirming the buyer payment and merchant review. A successful OAuth check alone does not submit tracking.
 
-- Successful Sandbox OAuth authentication.
-- Tracking payload preparation.
-- Actual tracking submission.
-
-Successful authentication does not mean tracking data has been submitted.
-
-A real PayPal transaction ID is required for an actual tracking operation. Sample identifiers such as `SANDBOX-TXN-1001` are demonstration data, not valid PayPal transactions.
+The Orders v2 tracking API supports retrying the same capture and tracking number idempotently. Treat an uncertain network result carefully and retry with the same tracking details; do not create a different tracking update until the previous result is resolved.
 
 Official documentation:
 
-- [PayPal Add Tracking API](https://developer.paypal.com/api/tracking/track-orders/use/)
+- [PayPal Orders v2 Add Tracking API](https://developer.paypal.com/api/tracking/track-orders/use/)
 - [PayPal Supported Carriers](https://developer.paypal.com/track-orders/carriers/)
 
 ## Demo scenarios
@@ -228,8 +220,8 @@ The sample dataset contains shipment scenarios designed to demonstrate validatio
 4. Select `ORD-1002` to demonstrate missing tracking information.
 5. Select `ORD-1003` to demonstrate a chronology issue.
 6. Inspect `ORD-1005` to demonstrate evidence review and remediation.
-7. Review the updated findings and PayPal payload preview.
-8. Show that tracking submission remains disabled.
+7. Open AI Inspections and record a human approval, rejection or correction request.
+8. For a real PayPal Sandbox checkout only, verify tracking remains blocked until the latest human approval and then demonstrate the Orders v2 tracking submission with the write gate enabled locally.
 
 ## Testing
 
@@ -245,9 +237,8 @@ From the backend directory:
 
 From the frontend directory:
 
-```powershell
+```cmd
 npx oxlint src
-
 npm run build
 ```
 
@@ -263,7 +254,8 @@ ShipProof AI is a hackathon prototype, not an official PayPal product.
 - ShipProof AI cannot guarantee PayPal Seller Protection or determine PayPal's final decision.
 - Carrier verification depends on the availability of an authoritative verification source.
 - Sample shipment records are for demonstration and testing.
-- PayPal Sandbox authentication does not prove that tracking submission works.
+- This prototype does not implement merchant authentication or role-based access control; reviewer labels are self-entered demo labels, not verified identities.
+- PayPal Sandbox authentication does not prove that tracking submission works. A real Sandbox tracking test is still required.
 
 ## Project structure
 
@@ -282,6 +274,8 @@ ShipProof-AI/
 │   │
 │   ├── tests/
 │   │   ├── test_ai_analyzer.py
+│   │   ├── test_human_review_and_tracking.py
+│   │   ├── test_paypal_checkout.py
 │   │   └── test_validator.py
 │   │
 │   ├── requirements.txt
