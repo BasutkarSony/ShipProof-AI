@@ -554,6 +554,26 @@ def submit_shipment_tracking(shipment_order_id: str, payload: dict):
             detail="Tracking has already been submitted for this shipment and cannot be replaced in this demo workflow.",
         )
 
+    if shipment.get("tracking_submission_status") == "FAILED":
+        previous_carrier_name = (
+            str(shipment.get("carrier_name_other") or "").strip()
+            if shipment.get("carrier") == "OTHER"
+            else ""
+        )
+        requested_carrier_name = carrier_name_other if carrier == "OTHER" else ""
+        if (
+            shipment.get("tracking_number") != tracking_number
+            or shipment.get("carrier") != carrier
+            or previous_carrier_name != requested_carrier_name
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The previous tracking request has an uncertain result. Retry with the same "
+                    "tracking number and carrier before attempting a different tracking update."
+                ),
+            )
+
     validation_payload = {
         "order_id": shipment_order_id,
         "transaction_id": shipment["paypal_capture_id"],
