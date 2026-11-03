@@ -349,7 +349,7 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertEqual(
             context["cancel_url"], "http://localhost:5173/checkout/cancel"
         )
-        self.assertEqual(context["brand_name"], "ShipProof AI")
+        self.assertEqual(context["brand_name"], "ParcelProof AI")
         self.assertEqual(context["locale"], "en-US")
         self.assertEqual(context["landing_page"], "LOGIN")
         self.assertEqual(context["shipping_preference"], "SET_PROVIDED_ADDRESS")
