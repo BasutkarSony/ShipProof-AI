@@ -525,12 +525,14 @@ class InspectionAPITests(unittest.TestCase):
             create_packing_inspection,
             list_manifest_inspections,
             get_inspection_by_id,
+            get_inspection_photo,
             create_shipment_manifest,
             finalize_manifest_by_id,
         )
         self.create_packing_inspection = create_packing_inspection
         self.list_manifest_inspections = list_manifest_inspections
         self.get_inspection_by_id = get_inspection_by_id
+        self.get_inspection_photo = get_inspection_photo
         self.create_shipment_manifest = create_shipment_manifest
         self.finalize_manifest_by_id = finalize_manifest_by_id
 
@@ -883,6 +885,57 @@ class InspectionAPITests(unittest.TestCase):
         fetched = self.get_inspection_by_id(created["inspection_id"])
         self.assertEqual(fetched["inspection_id"], created["inspection_id"])
         self.assertEqual(fetched["inspection_status"], "PENDING_HUMAN_REVIEW")
+
+
+    def test_persisted_inspection_photo_can_be_retrieved(self):
+        """Saved photo bytes remain available for evidence review after upload."""
+        import app.packing_inspector as pi
+
+        manifest = self._finalized_manifest_via_api()
+        raw_photo = _make_png()
+        meta = pi.validate_and_store_photo(raw_photo, "evidence.png")
+        record = store.create_inspection(
+            manifest_id=manifest["id"],
+            manifest_hash=manifest["manifest_hash"],
+            model_used="gemini-flash-latest-mock",
+            ai_result=_ai_result_fixture([manifest["items"][0]["id"]]),
+            photo_records=[{
+                "id": meta["id"],
+                "sha256": meta["sha256"],
+                "mime_type": meta["mime_type"],
+                "size_bytes": meta["size_bytes"],
+            }],
+        )
+
+        response = self.get_inspection_photo(record["id"], meta["id"])
+        self.assertEqual(response.media_type, "image/png")
+        self.assertEqual(Path(response.path).read_bytes(), raw_photo)
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+
+    def test_persisted_photo_cannot_be_read_through_another_inspection(self):
+        from fastapi import HTTPException
+        import app.packing_inspector as pi
+
+        manifest = self._finalized_manifest_via_api()
+        meta = pi.validate_and_store_photo(_make_jpeg(), "evidence.jpg")
+        record = store.create_inspection(
+            manifest_id=manifest["id"],
+            manifest_hash=manifest["manifest_hash"],
+            model_used="gemini-flash-latest-mock",
+            ai_result=_ai_result_fixture([manifest["items"][0]["id"]]),
+            photo_records=[{
+                "id": meta["id"],
+                "sha256": meta["sha256"],
+                "mime_type": meta["mime_type"],
+                "size_bytes": meta["size_bytes"],
+            }],
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            self.get_inspection_photo(
+                "00000000-0000-0000-0000-000000000000",
+                meta["id"],
+            )
+        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_get_inspection_unknown_raises_404(self):
         from fastapi import HTTPException
