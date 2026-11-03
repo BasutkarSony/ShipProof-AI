@@ -1,8 +1,6 @@
 """AI vision packing inspection service with Gemini primary and OpenAI fallback.
 
-This module isolates external vision-model calls from the deterministic shipment evidence engine.
-It is intentionally isolated from the deterministic shipment evidence engine
-(ai_analyzer.py) and must not be imported by it.
+This module isolates external vision-model calls from the deterministic shipment evidence engine (ai_analyzer.py).
 
 Safety guarantees enforced here:
 - inspection_status is always PENDING_HUMAN_REVIEW; the model never approves
@@ -37,7 +35,8 @@ load_dotenv()
 # Photo storage
 # ---------------------------------------------------------------------------
 
-PHOTO_DIR = Path(__file__).resolve().parent.parent / "data" / "inspection_photos"
+DATA_DIR = Path(os.getenv("PARCELPROOF_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+PHOTO_DIR = DATA_DIR / "inspection_photos"
 
 # Magic-byte signatures for supported image types.
 _ALLOWED_SIGNATURES: dict[bytes, str] = {
