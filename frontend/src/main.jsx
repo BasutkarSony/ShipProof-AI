@@ -2780,7 +2780,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
   const engineMeta = aiResult?.engine_metadata || {}
   const latestInspectionId = inspectionsList[0]?.inspection_id
   const isLatestInspection = Boolean(inspectionDetail && inspectionDetail.inspection_id === latestInspectionId)
-  const canHumanReview = inspectionDetail?.inspection_status === 'PENDING_HUMAN_REVIEW'
+  const canHumanReview = isLatestInspection && inspectionDetail?.inspection_status === 'PENDING_HUMAN_REVIEW'
   const canSubmitTracking =
     Boolean(selectedShipment?.checkout_order_id) &&
     isLatestInspection &&
@@ -3208,7 +3208,9 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                         ) : (
                           <div style={{ padding: '16px' }}>
                             <p>
-                              {inspectionDetail.inspection_status === 'APPROVED'
+                              {!isLatestInspection
+                                ? 'A newer inspection exists for this shipment. Only the latest inspection can receive a human decision.'
+                                : inspectionDetail.inspection_status === 'APPROVED'
                                 ? 'A merchant approved this inspection. A new inspection is required to record another review.'
                                 : inspectionDetail.inspection_status === 'NEEDS_CORRECTION'
                                 ? 'Corrections are required. Return to the packing station, capture updated evidence, and submit a new inspection.'
