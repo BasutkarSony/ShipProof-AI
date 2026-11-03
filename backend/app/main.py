@@ -928,6 +928,7 @@ async def create_packing_inspection(
             for p in inspection["photos"]
         ],
         "ai_result": inspection["ai_result"],
+        "review_history": inspection.get("review_history", []),
         "model_used": inspection["model_used"],
         "created_at": inspection["created_at"],
     }
