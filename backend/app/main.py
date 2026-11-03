@@ -1,5 +1,13 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+import base64
+import hmac
+import json
+import os
+from pathlib import Path
+from decimal import Decimal
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.validator import validate_order
 from app.ai_analyzer import analyze_shipment_evidence
@@ -36,16 +44,66 @@ from app.store import (
     list_shipments,
     update_shipment,
 )
-import json
-from pathlib import Path
-from decimal import Decimal
-from datetime import datetime, timezone
-
 app = FastAPI(
     title="ParcelProof AI API",
     description="PayPal-connected shipment evidence and packing verification",
     version="0.2.0",
 )
+
+
+
+def _valid_demo_authorization(auth_header: str) -> bool:
+    """Validate shared demo credentials without logging secrets."""
+    username = os.getenv("PARCELPROOF_DEMO_USERNAME", "").strip()
+    password = os.getenv("PARCELPROOF_DEMO_PASSWORD", "")
+    if not username or not password:
+        return False
+
+    try:
+        scheme, token = auth_header.split(None, 1)
+        if scheme.lower() != "basic":
+            return False
+        decoded = base64.b64decode(token, validate=True).decode("utf-8")
+        supplied_username, supplied_password = decoded.split(":", 1)
+    except (ValueError, UnicodeDecodeError):
+        return False
+
+    return (
+        hmac.compare_digest(supplied_username.encode("utf-8"), username.encode("utf-8"))
+        and hmac.compare_digest(supplied_password.encode("utf-8"), password.encode("utf-8"))
+    )
+
+
+@app.middleware("http")
+async def protect_public_demo(request: Request, call_next):
+    """Protect public demo data and provider-backed actions with shared Basic Auth."""
+    required = os.getenv("PARCELPROOF_DEMO_AUTH_REQUIRED", "false").strip().lower() == "true"
+    username = os.getenv("PARCELPROOF_DEMO_USERNAME", "").strip()
+    password = os.getenv("PARCELPROOF_DEMO_PASSWORD", "")
+    enabled = required or bool(username) or bool(password)
+
+    # Render health checks must remain public so the platform can monitor the service.
+    is_health_check = request.method == "GET" and request.url.path == "/health"
+    if enabled and not is_health_check:
+        if not username or not password:
+            return Response(
+                content="Demo access is not configured.",
+                status_code=503,
+                media_type="text/plain",
+            )
+        if not _valid_demo_authorization(request.headers.get("authorization", "")):
+            return Response(
+                content="Authentication required.",
+                status_code=401,
+                media_type="text/plain",
+                headers={"WWW-Authenticate": 'Basic realm="ParcelProof AI demo", charset="UTF-8"'},
+            )
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
 
 
 @app.on_event("startup")
@@ -799,6 +857,7 @@ def finalize_manifest_by_id(manifest_id: str):
 # ---------------------------------------------------------------------------
 
 from app.packing_inspector import (
+    PHOTO_DIR,
     validate_and_store_photo,
     run_inspection,
     MAX_PHOTOS_PER_INSPECTION,
@@ -1006,6 +1065,45 @@ def get_inspection_by_id(inspection_id: str):
         "created_at": inspection["created_at"],
         "updated_at": inspection["updated_at"],
     }
+
+
+@app.get("/api/inspections/{inspection_id}/photos/{photo_id}")
+def get_inspection_photo(inspection_id: str, photo_id: str):
+    """Return a stored photo only when it belongs to the requested inspection."""
+    inspection = get_inspection(inspection_id)
+    if inspection is None:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    photo = next(
+        (item for item in inspection.get("photos", []) if item.get("id") == photo_id),
+        None,
+    )
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found for this inspection.")
+
+    extension_by_mime = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+    extension = extension_by_mime.get(photo.get("mime_type"))
+    if extension is None:
+        raise HTTPException(status_code=415, detail="Stored photo type is not supported.")
+
+    photo_path = PHOTO_DIR / f"{photo_id}{extension}"
+    if not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="Stored photo file is unavailable.")
+
+    return FileResponse(
+        photo_path,
+        media_type=photo["mime_type"],
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 
 
 
