@@ -191,7 +191,7 @@ class PhotoValidationTests(unittest.TestCase):
         self.assertEqual(Path(result["path"]).parent, self._pi.PHOTO_DIR)
 
     def test_gemini_unavailable_error_when_no_api_key(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": ""}, clear=False):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "", "OPENAI_API_KEY": ""}, clear=False):
             with self.assertRaises(self._pi.GeminiUnavailableError):
                 self._pi.run_inspection({"id": "x", "manifest_hash": "h",
                                          "shipment_order_id": "o", "items": []}, [])
@@ -717,7 +717,7 @@ class InspectionAPITests(unittest.TestCase):
 
         try:
             photo_metas = [{"id": "p-1", "path": tf_path, "mime_type": "image/jpeg"}]
-            with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-api-key"}):
+            with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-api-key", "OPENAI_API_KEY": ""}):
                 with patch("google.genai.Client") as mock_client_cls:
                     mock_client = MagicMock()
                     mock_client_cls.return_value = mock_client
