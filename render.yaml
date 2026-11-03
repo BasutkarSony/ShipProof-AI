@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: parcelproof-ai
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: parcelproof-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PARCELPROOF_DATA_DIR
+        value: /var/data
+      - key: FRONTEND_URL
+        fromService:
+          name: parcelproof-ai
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: PAYPAL_TRACKING_SUBMISSION_ENABLED
+        value: "false"
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+      - key: OPENAI_API_KEY
+        value: ""
+      - key: OPENAI_VISION_MODEL
+        value: gpt-5.6-terra
+      - key: OPENAI_VISION_TIMEOUT_SECONDS
+        value: "90"
