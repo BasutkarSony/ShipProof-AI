@@ -856,8 +856,8 @@ def finalize_manifest_by_id(manifest_id: str):
 # Packing inspection endpoints
 # ---------------------------------------------------------------------------
 
+import app.packing_inspector as packing_inspector_service
 from app.packing_inspector import (
-    PHOTO_DIR,
     validate_and_store_photo,
     run_inspection,
     MAX_PHOTOS_PER_INSPECTION,
@@ -1090,7 +1090,7 @@ def get_inspection_photo(inspection_id: str, photo_id: str):
     if extension is None:
         raise HTTPException(status_code=415, detail="Stored photo type is not supported.")
 
-    photo_path = PHOTO_DIR / f"{photo_id}{extension}"
+    photo_path = packing_inspector_service.PHOTO_DIR / f"{photo_id}{extension}"
     if not photo_path.is_file():
         raise HTTPException(status_code=404, detail="Stored photo file is unavailable.")
 
