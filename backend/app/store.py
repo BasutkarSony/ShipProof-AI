@@ -1010,33 +1010,43 @@ def record_inspection_review(
     review_id = str(uuid.uuid4())
     conn = _connect()
     try:
-        with conn:
-            row = conn.execute(
-                "SELECT inspection_status FROM packing_inspections WHERE id = ?",
-                (inspection_id,),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"Inspection not found: {inspection_id}")
-            if row["inspection_status"] != "PENDING_HUMAN_REVIEW":
-                raise ValueError(
-                    "This inspection has already been reviewed. Submit a new inspection after corrections."
-                )
-            conn.execute(
-                """
-                INSERT INTO inspection_reviews
-                    (id, inspection_id, decision, reviewer_label, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (review_id, inspection_id, decision, reviewer_label, notes, now),
+        # Serialize competing reviewer submissions before checking the current status.
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT inspection_status FROM packing_inspections WHERE id = ?",
+            (inspection_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Inspection not found: {inspection_id}")
+        if row["inspection_status"] != "PENDING_HUMAN_REVIEW":
+            raise ValueError(
+                "This inspection has already been reviewed. Submit a new inspection after corrections."
             )
-            conn.execute(
-                """
-                UPDATE packing_inspections
-                SET inspection_status = ?, updated_at = ?
-                WHERE id = ? AND inspection_status = 'PENDING_HUMAN_REVIEW'
-                """,
-                (decision, now, inspection_id),
+
+        conn.execute(
+            """
+            INSERT INTO inspection_reviews
+                (id, inspection_id, decision, reviewer_label, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (review_id, inspection_id, decision, reviewer_label, notes, now),
+        )
+        cursor = conn.execute(
+            """
+            UPDATE packing_inspections
+            SET inspection_status = ?, updated_at = ?
+            WHERE id = ? AND inspection_status = 'PENDING_HUMAN_REVIEW'
+            """,
+            (decision, now, inspection_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(
+                "This inspection has already been reviewed. Submit a new inspection after corrections."
             )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
