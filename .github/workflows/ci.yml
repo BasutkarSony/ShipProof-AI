@@ -55,3 +55,12 @@ jobs:
       - name: Build production frontend
         working-directory: frontend
         run: npm run build
+
+  deployment-image:
+    name: Build deployment Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build --tag parcelproof-ai:ci .
