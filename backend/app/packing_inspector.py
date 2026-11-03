@@ -19,8 +19,13 @@ Safety guarantees enforced here:
   actual finalized manifest items before the result is trusted.
 """
 
+import base64
 import hashlib
+import json
 import os
+import time
+import urllib.error
+import urllib.request
 import uuid as _uuid
 from pathlib import Path
 
@@ -256,6 +261,192 @@ def _build_prompt(manifest: dict) -> str:
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# Optional OpenAI Vision fallback
+# ---------------------------------------------------------------------------
+
+def _openai_response_schema() -> dict:
+    """Return a strict JSON Schema supported by OpenAI Structured Outputs."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "image_quality",
+            "item_checks",
+            "additional_observations",
+            "human_review_required",
+            "inspection_summary",
+        ],
+        "properties": {
+            "image_quality": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["overall", "photo_assessments", "limitations"],
+                "properties": {
+                    "overall": {"type": "string", "enum": sorted(_VALID_QUALITY)},
+                    "photo_assessments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["photo_index", "useful", "notes"],
+                            "properties": {
+                                "photo_index": {"type": "integer"},
+                                "useful": {"type": "boolean"},
+                                "notes": {"type": "string"},
+                            },
+                        },
+                    },
+                    "limitations": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            "item_checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "manifest_item_id", "sku", "description", "expected_qty",
+                        "observed_qty", "result", "visual_evidence", "confidence",
+                    ],
+                    "properties": {
+                        "manifest_item_id": {"type": "string"},
+                        "sku": {"type": "string"},
+                        "description": {"type": "string"},
+                        "expected_qty": {"type": "integer"},
+                        "observed_qty": {"type": ["integer", "null"]},
+                        "result": {"type": "string", "enum": sorted(_VALID_RESULTS)},
+                        "visual_evidence": {"type": "string"},
+                        "confidence": {"type": "string", "enum": sorted(_VALID_CONFIDENCE)},
+                    },
+                },
+            },
+            "additional_observations": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "possible_extra_items", "visible_product_damage",
+                    "visible_packaging_damage", "uncertainty_notes",
+                ],
+                "properties": {
+                    "possible_extra_items": {"type": "array", "items": {"type": "string"}},
+                    "visible_product_damage": {"type": "array", "items": {"type": "string"}},
+                    "visible_packaging_damage": {"type": "array", "items": {"type": "string"}},
+                    "uncertainty_notes": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            "human_review_required": {"type": "boolean"},
+            "inspection_summary": {"type": "string"},
+        },
+    }
+
+
+def _run_openai_inspection(manifest: dict, photo_metas: list[dict], api_key: str) -> dict:
+    """Run the same manifest/photo task through the optional OpenAI vision fallback."""
+    model = os.getenv("OPENAI_VISION_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
+    image_parts = []
+    for meta in photo_metas:
+        raw = Path(meta["path"]).read_bytes()
+        encoded = base64.b64encode(raw).decode("ascii")
+        image_parts.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{meta['mime_type']};base64,{encoded}",
+                "detail": "high",
+            },
+        })
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": _build_prompt(manifest)}] + image_parts,
+        }],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "packing_inspection",
+                "strict": True,
+                "schema": _openai_response_schema(),
+            },
+        },
+    }
+
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        timeout = max(15, min(int(os.getenv("OPENAI_VISION_TIMEOUT_SECONDS", "90")), 180))
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Report the HTTP status only; never echo credentials or provider response bodies.
+        raise RuntimeError(
+            f"OpenAI vision fallback request failed (HTTP {exc.code})."
+        ) from None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        raise RuntimeError(
+            "OpenAI vision fallback could not complete the request."
+        ) from None
+
+    try:
+        message = response_data["choices"][0]["message"]
+        if message.get("refusal"):
+            raise RuntimeError("OpenAI declined the packing inspection request.")
+        ai_result = json.loads(message["content"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise RuntimeError(
+            "OpenAI vision fallback returned an unexpected response format."
+        ) from None
+
+    _validate_ai_result(ai_result, manifest)
+    ai_result["human_review_required"] = True
+
+    return {
+        "ai_result": ai_result,
+        "model_used": model,
+        "engine_metadata": {
+            "type": "OPENAI_VISION_LLM",
+            "model": model,
+            "auditable": False,
+            "zero_hallucination": False,
+            "disclaimer": (
+                "Visual inspection only. Sealed container contents are not "
+                "verified. This result requires human review before any "
+                "shipment approval or rejection decision is made."
+            ),
+        },
+    }
+
+
+def _is_retryable_gemini_error(exc: Exception) -> bool:
+    """Identify transient Gemini errors without exposing provider internals."""
+    code = getattr(exc, "code", None)
+    message = str(exc).upper()
+    return code in (429, 500, 502, 503, 504) or any(
+        token in message for token in (
+            "429", "500", "502", "503", "504",
+            "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL",
+        )
+    )
+
+
+def _is_gemini_unavailable(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    message = str(exc).upper()
+    return code in (429, 503) or any(
+        token in message for token in ("429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public inspection entry point
 # ---------------------------------------------------------------------------
@@ -350,36 +541,108 @@ def _validate_ai_result(ai_result: dict, manifest: dict) -> None:
 
 
 def run_inspection(manifest: dict, photo_metas: list[dict]) -> dict:
-    """Call Gemini to inspect packing photographs against the manifest.
+    """Run a packing inspection with Gemini primary and optional OpenAI fallback.
 
-    Parameters
-    ----------
-    manifest:
-        Finalized manifest dict as returned by store.get_manifest().
-    photo_metas:
-        List of dicts from validate_and_store_photo(), each containing
-        at least 'path' (Path) and 'mime_type' (str).
-
-    Returns
-    -------
-    dict with keys:
-        ai_result (structured inspection JSON),
-        model_used (str),
-        engine_metadata (dict).
-
-    Raises
-    ------
-    GeminiUnavailableError  — API key not set.
-    RuntimeError            — Gemini API call failed.
+    Gemini is attempted first. A single short retry is made for transient server
+    errors. If Gemini remains unavailable, OPENAI_API_KEY enables a vision
+    fallback. The same photos, manifest prompt, schema checks and human-review
+    invariant are applied to both providers.
     """
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
     if not api_key:
+        if openai_key:
+            return _run_openai_inspection(manifest, photo_metas, openai_key)
         raise GeminiUnavailableError(
-            "GEMINI_API_KEY is not set. Add it to backend/.env to enable "
-            "Gemini-powered packing inspections."
+            "No vision provider is configured. Add GEMINI_API_KEY or OPENAI_API_KEY to backend/.env."
         )
 
     model = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip() or "gemini-flash-latest"
+
+    # Import here so unit tests can run without a live provider connection.
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+
+    # Build content list: prompt text + one Part per photo.
+    prompt_text = _build_prompt(manifest)
+    contents: list = [prompt_text]
+    for meta in photo_metas:
+        raw = Path(meta["path"]).read_bytes()
+        contents.append(
+            types.Part.from_bytes(data=raw, mime_type=meta["mime_type"])
+        )
+
+    import json as _json
+    try:
+        from google.genai import errors as genai_errors
+    except ImportError:
+        genai_errors = None
+
+    response = None
+    final_error = None
+    for attempt in range(2):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=_INSPECTION_SCHEMA,
+                ),
+            )
+            break
+        except Exception as exc:
+            final_error = exc
+            if attempt == 0 and _is_retryable_gemini_error(exc):
+                time.sleep(0.5)
+                continue
+            break
+
+    if response is None:
+        if final_error and _is_gemini_unavailable(final_error):
+            if openai_key:
+                try:
+                    return _run_openai_inspection(manifest, photo_metas, openai_key)
+                except RuntimeError:
+                    raise RuntimeError(
+                        "Gemini is temporarily unavailable and the configured OpenAI vision fallback also failed. Check the fallback model and API access, then retry."
+                    ) from None
+            raise GeminiUnavailableError(
+                "Gemini service is temporarily unavailable after a retry (503/429). Add OPENAI_API_KEY to enable the optional vision fallback, or retry later."
+            ) from None
+        raise RuntimeError("Gemini visual inspection API request failed.") from None
+
+    try:
+        ai_result = _json.loads(response.text)
+    except (ValueError, AttributeError) as exc:
+        raise RuntimeError(
+            "Gemini returned an unexpected response format."
+        ) from exc
+
+    # Validate structure and cross-check manifest item IDs before trusting any value.
+    _validate_ai_result(ai_result, manifest)
+
+    # Hard-enforce the safety invariant regardless of what the model returned.
+    ai_result["human_review_required"] = True
+
+    return {
+        "ai_result": ai_result,
+        "model_used": model,
+        "engine_metadata": {
+            "type": "GEMINI_VISION_LLM",
+            "model": model,
+            "auditable": False,
+            "zero_hallucination": False,
+            "disclaimer": (
+                "Visual inspection only. Sealed container contents are not "
+                "verified. This result requires human review before any "
+                "shipment approval or rejection decision is made."
+            ),
+        },
+    }
 
     # Import here so the module can be imported without google-genai installed
     # in environments where only tests run (they mock this call).
