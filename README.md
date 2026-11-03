@@ -164,13 +164,18 @@ The Blueprint prompts for these secrets instead of storing them in Git:
 - `PAYPAL_CLIENT_ID`
 - `PAYPAL_CLIENT_SECRET`
 - `GEMINI_API_KEY`
+- `PARCELPROOF_DEMO_USERNAME`
+- `PARCELPROOF_DEMO_PASSWORD`
+
+The deployed app requires HTTP Basic Authentication. Choose a demo username and a strong, unique password during the Render setup, then share the access details only with intended judges/testers. The `/health` endpoint remains public for Render health checks. Local development leaves demo authentication disabled unless credentials are configured.
+
 
 Optional:
 
 - `OPENAI_API_KEY` — enables fallback when Gemini is unavailable.
 - `OPENAI_VISION_MODEL` — defaults to `gpt-5.6-terra`.
 
-The Blueprint automatically sets `FRONTEND_URL` from Render's public service URL and keeps `PAYPAL_TRACKING_SUBMISSION_ENABLED=false`.
+The Blueprint automatically sets `FRONTEND_URL` from Render's public service URL and keeps `PAYPAL_TRACKING_SUBMISSION_ENABLED=false`. Public app pages, buyer/order APIs, and persisted evidence photos are protected by the shared demo password.
 
 ## Testing
 
@@ -220,7 +225,7 @@ ParcelProof AI is a hackathon prototype, not an official PayPal product.
 - Evidence analysis uses deterministic rules and text-pattern heuristics; it is not generative AI inference.
 - Vision-model outputs can be wrong and require human review.
 - A photograph cannot prove the contents of a sealed package.
-- A merchant-entered reviewer label is not a verified identity; merchant authentication and role-based access are not implemented.
+- The hosted demo uses one shared password, not individual merchant accounts or role-based access control; reviewer labels are still self-entered demo labels, not verified identities.
 - Text entered by a merchant is not independent proof from a carrier.
 - Evidence-quality results are advisory and do not predict dispute outcomes or guarantee Seller Protection.
 - Sample shipment records are for demonstration and testing.
