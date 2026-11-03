@@ -227,10 +227,10 @@ The sample dataset contains shipment scenarios designed to demonstrate validatio
 
 ### Backend tests
 
-From the backend directory:
+From the backend directory, with the virtual environment active:
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```cmd
+python -m unittest discover -s tests -v
 ```
 
 ### Frontend checks
