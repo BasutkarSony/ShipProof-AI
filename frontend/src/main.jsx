@@ -706,6 +706,7 @@ export default function App() {
         <InspectionsReviewView
           orders={orders}
           setOrders={setOrders}
+          paypal={paypal}
           activeShipmentId={activeShipmentId}
           setActiveShipmentId={setActiveShipmentId}
           navigateTo={navigateTo}
@@ -1049,7 +1050,7 @@ export default function App() {
                         <strong>Preview only.</strong> Actual tracking submission is available from AI Inspections after the latest packing inspection is human-approved. The backend supplies the stored PayPal order ID, capture ID and paid order items. The Sandbox write gate remains locked until explicitly enabled.
                       </span>
                     </div>
-                  </div>>
+                  </div>
                 </>
               ) : null}
             </div>
@@ -2183,6 +2184,21 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
+        if (res.status === 502) {
+          // The request may have reached PayPal before a network interruption.
+          // Preserve the exact details so any retry is idempotent.
+          setOrders(prev => prev.map(order =>
+            order.order_id === selectedShipment.order_id
+              ? {
+                  ...order,
+                  tracking_number: trackingNumber.trim(),
+                  carrier: trackingCarrier,
+                  carrier_name_other: trackingCarrier === 'OTHER' ? trackingCarrierOther.trim() : 'UNASSIGNED',
+                  tracking_submission_status: 'FAILED'
+                }
+              : order
+          ))
+        }
         throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail) || 'Could not submit tracking to PayPal.')
       }
       setOrders(prev => prev.map(order =>
@@ -2628,7 +2644,7 @@ function PackingStationView({ orders, activeShipmentId, setActiveShipmentId, nav
 }
 
 // ─── AI Inspection Results & Human Review View ────────────────────────────────
-function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveShipmentId, navigateTo }) {
+function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, setActiveShipmentId, navigateTo }) {
   const [manifest, setManifest] = useState(null)
   const [inspectionsList, setInspectionsList] = useState([])
   const [activeInspectionId, setActiveInspectionId] = useState(null)
@@ -2720,7 +2736,7 @@ function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveS
     return () => {
       ignore = true
     }
-  }, [selectedShipment])
+  }, [selectedShipment?.order_id])
 
   // Fetch full inspection record whenever activeInspectionId changes
   useEffect(() => {
@@ -2769,7 +2785,8 @@ function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveS
     Boolean(selectedShipment?.checkout_order_id) &&
     isLatestInspection &&
     inspectionDetail?.inspection_status === 'APPROVED' &&
-    selectedShipment?.tracking_submission_status !== 'SUBMITTED'
+    selectedShipment?.tracking_submission_status !== 'SUBMITTED' &&
+    Boolean(paypal?.submission_enabled)
 
   return (
     <main className="main" id="main-content">
@@ -3241,11 +3258,11 @@ function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveS
                               <div className="interactive-form-grid">
                                 <div className="form-group">
                                   <label htmlFor="tracking-number">Carrier tracking number</label>
-                                  <input id="tracking-number" className="form-control" maxLength={64} value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} placeholder="Enter the carrier tracking number" />
+                                  <input id="tracking-number" className="form-control" maxLength={64} value={trackingNumber} readOnly={selectedShipment.tracking_submission_status === 'FAILED'} onChange={e => setTrackingNumber(e.target.value)} placeholder="Enter the carrier tracking number" />
                                 </div>
                                 <div className="form-group">
                                   <label htmlFor="tracking-carrier">Carrier</label>
-                                  <select id="tracking-carrier" className="form-control" value={trackingCarrier} onChange={e => setTrackingCarrier(e.target.value)}>
+                                  <select id="tracking-carrier" className="form-control" value={trackingCarrier} disabled={selectedShipment.tracking_submission_status === 'FAILED'} onChange={e => setTrackingCarrier(e.target.value)}>
                                     <option value="FEDEX">FedEx</option>
                                     <option value="UPS">UPS</option>
                                     <option value="USPS">USPS</option>
@@ -3256,7 +3273,7 @@ function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveS
                                 {trackingCarrier === 'OTHER' && (
                                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                     <label htmlFor="tracking-carrier-other">Carrier name</label>
-                                    <input id="tracking-carrier-other" className="form-control" maxLength={64} value={trackingCarrierOther} onChange={e => setTrackingCarrierOther(e.target.value)} placeholder="e.g. Delhivery, Blue Dart" />
+                                    <input id="tracking-carrier-other" className="form-control" maxLength={64} value={trackingCarrierOther} readOnly={selectedShipment.tracking_submission_status === 'FAILED'} onChange={e => setTrackingCarrierOther(e.target.value)} placeholder="e.g. Delhivery, Blue Dart" />
                                   </div>
                                 )}
                                 <div className="form-checkbox-row">
@@ -3279,7 +3296,11 @@ function InspectionsReviewView({ orders, setOrders, activeShipmentId, setActiveS
                               <p>
                                 {inspectionDetail.inspection_status !== 'APPROVED'
                                   ? 'Approve the latest inspection before submitting shipment tracking.'
-                                  : 'The latest inspection must be the selected inspection, and the local PayPal write gate must be enabled.'}
+                                  : !isLatestInspection
+                                  ? 'Select the latest inspection for this shipment before submitting tracking.'
+                                  : !paypal?.submission_enabled
+                                  ? 'The PayPal Sandbox tracking write gate is locked. It must be enabled locally before a real Sandbox submission.'
+                                  : 'Tracking submission is unavailable until the shipment has a valid saved PayPal checkout.'}
                               </p>
                             </div>
                           )}
