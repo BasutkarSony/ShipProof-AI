@@ -764,7 +764,7 @@ def get_manifest_for_shipment(shipment_order_id: str) -> dict | None:
             """
             SELECT id FROM shipment_manifests
             WHERE shipment_order_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, rowid DESC
             LIMIT 1
             """,
             (shipment_order_id,),
