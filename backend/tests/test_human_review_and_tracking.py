@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import tempfile
@@ -22,7 +23,12 @@ from app.store import (
     get_inspection,
     get_shipment_by_order_id,
 )
-from app.main import (\n    review_packing_inspection,\n    submit_shipment_tracking,\n    get_inspection_by_id,\n)
+from app.main import (
+    review_packing_inspection,
+    submit_shipment_tracking,
+    get_inspection_by_id,
+    create_packing_inspection,
+)
 
 
 class HumanReviewAndTrackingTests(unittest.TestCase):
@@ -160,6 +166,18 @@ class HumanReviewAndTrackingTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertEqual(get_inspection(self.inspection["id"])["inspection_status"], "REJECTED")
+
+    def test_new_packing_inspections_are_closed_after_tracking_submission(self):
+        store.update_shipment(
+            self.shipment["order_id"],
+            tracking_submission_status="SUBMITTED",
+            tracking_number="TRACK123",
+            carrier="DHL",
+            status="SHIPPED",
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(create_packing_inspection(self.manifest["id"], []))
+        self.assertEqual(ctx.exception.status_code, 409)
 
     def test_tracking_is_blocked_until_latest_inspection_is_approved(self):
         with patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"}):
