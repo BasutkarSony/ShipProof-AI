@@ -10,8 +10,20 @@ $NewRepoFullName = "$Owner/$NewRepoName"
 $SourceRepoUrl = "https://github.com/BasutkarSony/ShipProof-AI.git"
 $SourceBranch = "parcelproof/stage-a-b-order-checkout"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$ParentDirectory = Split-Path -Parent $ProjectRoot
+$ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = $null
+if (Test-Path (Join-Path $ScriptDirectory "backend\app\main.py")) {
+    $ProjectRoot = $ScriptDirectory
+} elseif (Test-Path (Join-Path $ScriptDirectory "..\backend\app\main.py")) {
+    $ProjectRoot = (Resolve-Path (Join-Path $ScriptDirectory "..")).Path
+}
+
+if ($ProjectRoot) {
+    $ParentDirectory = Split-Path -Parent $ProjectRoot
+} else {
+    # Also support running a downloaded copy of this script from Downloads.
+    $ParentDirectory = $ScriptDirectory
+}
 $Destination = Join-Path $ParentDirectory $NewRepoName
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
