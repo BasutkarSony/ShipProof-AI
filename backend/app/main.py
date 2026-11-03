@@ -598,7 +598,7 @@ def submit_shipment_tracking(shipment_order_id: str, payload: dict):
         raise HTTPException(
             status_code=422,
             detail={
-                "message": "Tracking details failed ShipProof's basic data checks. Nothing was sent to PayPal.",
+                "message": "Tracking details failed ParcelProof's basic data checks. Nothing was sent to PayPal.",
                 "validation": validation,
             },
         )
