@@ -224,7 +224,7 @@ def create_paypal_order(
         "payment_source": {
             "paypal": {
                 "experience_context": {
-                    "brand_name": "ShipProof AI",
+                    "brand_name": "ParcelProof AI",
                     "locale": "en-US",
                     "landing_page": "LOGIN",
                     "shipping_preference": "SET_PROVIDED_ADDRESS",
