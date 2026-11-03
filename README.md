@@ -275,7 +275,11 @@ ShipProof-AI/
 │   ├── tests/
 │   │   ├── test_ai_analyzer.py
 │   │   ├── test_human_review_and_tracking.py
+│   │   ├── test_manifest.py
+│   │   ├── test_packing_inspector.py
 │   │   ├── test_paypal_checkout.py
+│   │   ├── test_paypal_to_shipment.py
+│   │   ├── test_store.py
 │   │   └── test_validator.py
 │   │
 │   ├── requirements.txt
