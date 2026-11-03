@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 //   /manifests           Shipment Management & Product Manifests
 //   /packing             Packing Station & Gemini Inspection
 //   /inspections         AI Inspection Results & Human Review
-//   /checkout            PayPal Sandbox Packaging Catalog Checkout
+//   /checkout            PayPal Sandbox Buyer Checkout
 //   /checkout/return     PayPal Payment Return / Capture
 //   /checkout/cancel     PayPal Payment Cancellation
 
@@ -233,6 +233,15 @@ export default function App() {
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [cart, setCart] = useState({})
+  const [checkoutDetails, setCheckoutDetails] = useState({
+    buyerName: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    countryCode: 'IN'
+  })
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [captureLoading, setCaptureLoading] = useState(false)
@@ -501,13 +510,35 @@ export default function App() {
       return
     }
 
+    const buyerName = checkoutDetails.buyerName.trim()
+    const addressLine1 = checkoutDetails.addressLine1.trim()
+    const city = checkoutDetails.city.trim()
+    const postalCode = checkoutDetails.postalCode.trim()
+    const countryCode = checkoutDetails.countryCode.trim().toUpperCase()
+    if (!buyerName || !addressLine1 || !city || !postalCode || !/^[A-Z]{2}$/.test(countryCode)) {
+      setCheckoutError('Enter the recipient name and complete delivery address before continuing.')
+      return
+    }
+
     setCheckoutLoading(true)
     setCheckoutError('')
     try {
       const res = await fetch(`${API_BASE}/api/checkout/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, currency: 'USD' })
+        body: JSON.stringify({
+          items,
+          currency: 'USD',
+          buyer_name: buyerName,
+          shipping_address: {
+            address_line_1: addressLine1,
+            address_line_2: checkoutDetails.addressLine2.trim(),
+            city,
+            state: checkoutDetails.state.trim(),
+            postal_code: postalCode,
+            country_code: countryCode
+          }
+        })
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -619,6 +650,8 @@ export default function App() {
           cart={cart}
           checkoutLoading={checkoutLoading}
           checkoutError={checkoutError}
+          checkoutDetails={checkoutDetails}
+          setCheckoutDetails={setCheckoutDetails}
           loadCatalog={loadCatalog}
           addToCart={addToCart}
           removeFromCart={removeFromCart}
@@ -1345,6 +1378,10 @@ function ShipmentReviewMain({
                     <strong>
                       {order.amount ? `$${Number(order.amount).toFixed(2)} ${order.currency || 'USD'}` : '—'}
                     </strong>
+                  </div>
+                  <div className="detail-col">
+                    <small>Recipient</small>
+                    <strong>{order.buyer_name || '—'}</strong>
                   </div>
                   <div className="detail-col">
                     <small>Destination Address</small>
@@ -2985,6 +3022,8 @@ function CheckoutCatalogView({
   cart,
   checkoutLoading,
   checkoutError,
+  checkoutDetails,
+  setCheckoutDetails,
   loadCatalog,
   addToCart,
   removeFromCart,
@@ -3021,8 +3060,8 @@ function CheckoutCatalogView({
           <div className="queue-header" style={{ marginBottom: '20px' }}>
             <div className="queue-title">
               <div className="eyebrow">PRODUCT CATALOGUE</div>
-              <h1 id="catalog-heading" className="checkout-page-heading">Packaging Products</h1>
-              <p>Select the shipping materials you need. The final total is verified server-side before payment.</p>
+              <h1 id="catalog-heading" className="checkout-page-heading">Shop physical products</h1>
+              <p>Choose items from the demo store. Your paid order will carry these exact products into the merchant's packing manifest.</p>
             </div>
           </div>
 
@@ -3136,6 +3175,102 @@ function CheckoutCatalogView({
             </div>
           )}
 
+          <section className="checkout-address-form" aria-labelledby="delivery-heading">
+            <div>
+              <h3 id="delivery-heading" className="checkout-address-title">Delivery details</h3>
+              <p className="checkout-address-note">These details are saved with the order and sent to PayPal for this physical-goods purchase.</p>
+            </div>
+            <label className="checkout-field" htmlFor="checkout-buyer-name">
+              <span>Recipient full name</span>
+              <input
+                id="checkout-buyer-name"
+                type="text"
+                autoComplete="shipping name"
+                maxLength={100}
+                value={checkoutDetails.buyerName}
+                onChange={event => setCheckoutDetails(current => ({ ...current, buyerName: event.target.value }))}
+                placeholder="Name on the delivery"
+                required
+              />
+            </label>
+            <label className="checkout-field" htmlFor="checkout-address-line1">
+              <span>Street address</span>
+              <input
+                id="checkout-address-line1"
+                type="text"
+                autoComplete="shipping address-line1"
+                maxLength={120}
+                value={checkoutDetails.addressLine1}
+                onChange={event => setCheckoutDetails(current => ({ ...current, addressLine1: event.target.value }))}
+                placeholder="House number and street"
+                required
+              />
+            </label>
+            <label className="checkout-field" htmlFor="checkout-address-line2">
+              <span>Apartment, suite or landmark <small>(optional)</small></span>
+              <input
+                id="checkout-address-line2"
+                type="text"
+                autoComplete="shipping address-line2"
+                maxLength={120}
+                value={checkoutDetails.addressLine2}
+                onChange={event => setCheckoutDetails(current => ({ ...current, addressLine2: event.target.value }))}
+                placeholder="Apartment, unit, building"
+              />
+            </label>
+            <div className="checkout-address-grid">
+              <label className="checkout-field" htmlFor="checkout-city">
+                <span>City</span>
+                <input
+                  id="checkout-city"
+                  type="text"
+                  autoComplete="shipping address-level2"
+                  maxLength={120}
+                  value={checkoutDetails.city}
+                  onChange={event => setCheckoutDetails(current => ({ ...current, city: event.target.value }))}
+                  required
+                />
+              </label>
+              <label className="checkout-field" htmlFor="checkout-state">
+                <span>State / region <small>(optional)</small></span>
+                <input
+                  id="checkout-state"
+                  type="text"
+                  autoComplete="shipping address-level1"
+                  maxLength={120}
+                  value={checkoutDetails.state}
+                  onChange={event => setCheckoutDetails(current => ({ ...current, state: event.target.value }))}
+                />
+              </label>
+              <label className="checkout-field" htmlFor="checkout-postal">
+                <span>Postal code</span>
+                <input
+                  id="checkout-postal"
+                  type="text"
+                  autoComplete="shipping postal-code"
+                  maxLength={120}
+                  value={checkoutDetails.postalCode}
+                  onChange={event => setCheckoutDetails(current => ({ ...current, postalCode: event.target.value }))}
+                  required
+                />
+              </label>
+              <label className="checkout-field" htmlFor="checkout-country">
+                <span>Country code</span>
+                <input
+                  id="checkout-country"
+                  type="text"
+                  autoComplete="shipping country"
+                  maxLength={2}
+                  minLength={2}
+                  value={checkoutDetails.countryCode}
+                  onChange={event => setCheckoutDetails(current => ({ ...current, countryCode: event.target.value.toUpperCase() }))}
+                  placeholder="IN"
+                  required
+                />
+              </label>
+            </div>
+          </section>
+
           {checkoutError && (
             <div className="findings-box issues summary-error" role="alert">
               {checkoutError}
@@ -3145,8 +3280,16 @@ function CheckoutCatalogView({
           <button
             className="btn-paypal"
             onClick={handleCheckout}
-            disabled={!hasItems || checkoutLoading}
-            aria-label={!hasItems ? 'Add items to cart before checking out' : 'Proceed to PayPal checkout'}
+            disabled={
+              !hasItems ||
+              checkoutLoading ||
+              !checkoutDetails.buyerName.trim() ||
+              !checkoutDetails.addressLine1.trim() ||
+              !checkoutDetails.city.trim() ||
+              !checkoutDetails.postalCode.trim() ||
+              !/^[A-Z]{2}$/.test(checkoutDetails.countryCode.trim().toUpperCase())
+            }
+            aria-label={!hasItems ? 'Add items to cart before checking out' : 'Complete delivery details before PayPal checkout'}
           >
             {checkoutLoading ? (
               <>
@@ -3261,6 +3404,27 @@ function CheckoutReturnView({ captureLoading, captureError, captureResult, navig
                 <dt>Local Order ID</dt>
                 <dd className="result-detail-value">{captureResult.order_id}</dd>
               </div>
+              {captureResult.buyer_name && (
+                <div className="result-detail-row">
+                  <dt>Recipient</dt>
+                  <dd className="result-detail-value">{captureResult.buyer_name}</dd>
+                </div>
+              )}
+              {captureResult.shipping_address && (
+                <div className="result-detail-row">
+                  <dt>Delivery Address</dt>
+                  <dd className="result-detail-value">
+                    {[
+                      captureResult.shipping_address.address_line_1,
+                      captureResult.shipping_address.address_line_2,
+                      captureResult.shipping_address.city,
+                      captureResult.shipping_address.state,
+                      captureResult.shipping_address.postal_code,
+                      captureResult.shipping_address.country_code
+                    ].filter(Boolean).join(', ')}
+                  </dd>
+                </div>
+              )}
               {captureResult.shipment_order_id && (
                 <div className="result-detail-row">
                   <dt>Shipment ID</dt>
@@ -3295,7 +3459,7 @@ function CheckoutReturnView({ captureLoading, captureError, captureResult, navig
                   className="btn-primary"
                   onClick={() => navigateTo('/manifests', { shipmentId: captureResult.shipment_order_id })}
                 >
-                  Create Shipment Manifest →
+                  Review shipment manifest →
                 </button>
               ) : null}
               <button className={captureResult.shipment_order_id ? 'btn-secondary' : 'btn-primary'} onClick={() => navigateTo('/')}>

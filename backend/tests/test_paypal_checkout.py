@@ -12,7 +12,24 @@ from fastapi import HTTPException
 
 import app.store as store
 from app.store import init_db, create_order, get_order
-from app.main import create_checkout_order, capture_checkout_order
+from app.main import create_checkout_order as _create_checkout_order, capture_checkout_order
+
+
+def create_checkout_order(payload):
+    """Keep legacy API tests concise while supplying valid physical-goods details."""
+    test_payload = dict(payload)
+    test_payload.setdefault("buyer_name", "Demo Test Buyer")
+    test_payload.setdefault(
+        "shipping_address",
+        {
+            "address_line_1": "123 Test Street",
+            "city": "Austin",
+            "state": "TX",
+            "postal_code": "78701",
+            "country_code": "US",
+        },
+    )
+    return _create_checkout_order(test_payload)
 
 
 # Realistic PayPal Orders v2 capture response (capture nested inside purchase_units[].payments.captures[])
@@ -22,13 +39,13 @@ CAPTURE_SUCCESS = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -42,7 +59,7 @@ CAPTURE_MISSING_CAPTURES = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {},
         }
     ],
@@ -54,7 +71,7 @@ CAPTURE_WRONG_AMOUNT = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
@@ -74,13 +91,13 @@ CAPTURE_WRONG_CURRENCY = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "EUR", "value": "44.73"},
+                        "amount": {"currency_code": "EUR", "value": "50.00"},
                     }
                 ]
             },
@@ -94,13 +111,13 @@ CAPTURE_INCOMPLETE_STATUS = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "APPROVED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -114,13 +131,13 @@ CAPTURE_INCOMPLETE_ORDER_STATUS = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -134,13 +151,13 @@ CAPTURE_MISMATCHED_ORDER_ID = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -154,13 +171,13 @@ CAPTURE_EMPTY_CAPTURE_ID = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -173,13 +190,13 @@ CAPTURE_MISSING_ORDER_ID = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-123",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -222,8 +239,8 @@ class PayPalCheckoutTests(unittest.TestCase):
         result = create_checkout_order(
             {
                 "items": [
-                    {"sku": "SHIP-STD-001", "quantity": 2},
-                    {"sku": "SHIP-FRA-003", "quantity": 1},
+                    {"sku": "MUG-CER-001", "quantity": 2},
+                    {"sku": "TOTE-COT-002", "quantity": 1},
                 ],
                 "currency": "USD",
             }
@@ -231,7 +248,7 @@ class PayPalCheckoutTests(unittest.TestCase):
 
         self.assertIsNotNone(result["order_id"])
         self.assertEqual(result["paypal_order_id"], "PAYPAL-ORDER-123")
-        self.assertEqual(result["total"], "44.73")
+        self.assertEqual(result["total"], "50.00")
         self.assertEqual(result["currency"], "USD")
         self.assertIsNotNone(result["approval_url"])
         self.assertEqual(result["status"], "CREATED")
@@ -243,7 +260,7 @@ class PayPalCheckoutTests(unittest.TestCase):
 
         # Verify PayPal was called with server-calculated total, not frontend price.
         call_args = mock_create.call_args
-        self.assertEqual(call_args[0][1], 4473)  # amount_cents is 2nd positional arg
+        self.assertEqual(call_args[0][1], 5000)  # amount_cents is 2nd positional arg
 
     @patch("app.main.create_paypal_order")
     @patch("app.main.get_access_token")
@@ -260,14 +277,14 @@ class PayPalCheckoutTests(unittest.TestCase):
         # Frontend might try to send a different price, but server calculates from catalogue.
         result = create_checkout_order(
             {
-                "items": [{"sku": "SHIP-HEV-002", "quantity": 3}],
+                "items": [{"sku": "TOTE-COT-002", "quantity": 3}],
                 "currency": "USD",
             }
         )
 
-        self.assertEqual(result["total"], "73.50")
+        self.assertEqual(result["total"], "42.00")
         call_args = mock_create.call_args
-        self.assertEqual(call_args[0][1], 7350)  # amount_cents is 2nd positional arg
+        self.assertEqual(call_args[0][1], 4200)  # amount_cents is 2nd positional arg
 
     @patch("app.main.create_paypal_order")
     @patch("app.main.get_access_token")
@@ -283,7 +300,7 @@ class PayPalCheckoutTests(unittest.TestCase):
 
         result = create_checkout_order(
             {
-                "items": [{"sku": "SHIP-STD-001", "quantity": 1}],
+                "items": [{"sku": "MUG-CER-001", "quantity": 1}],
                 "currency": "USD",
             }
         )
@@ -308,7 +325,7 @@ class PayPalCheckoutTests(unittest.TestCase):
 
         create_checkout_order(
             {
-                "items": [{"sku": "SHIP-STD-001", "quantity": 1}],
+                "items": [{"sku": "MUG-CER-001", "quantity": 1}],
                 "currency": "USD",
             }
         )
@@ -329,7 +346,24 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertEqual(context["brand_name"], "ShipProof AI")
         self.assertEqual(context["locale"], "en-US")
         self.assertEqual(context["landing_page"], "LOGIN")
-        self.assertEqual(context["shipping_preference"], "NO_SHIPPING")
+        self.assertEqual(context["shipping_preference"], "SET_PROVIDED_ADDRESS")
+        purchase_unit = request_body["purchase_units"][0]
+        self.assertEqual(len(purchase_unit["items"]), 1)
+        self.assertEqual(purchase_unit["amount"]["value"], "18.00")
+        self.assertEqual(
+            purchase_unit["amount"]["breakdown"]["item_total"]["value"],
+            "18.00",
+        )
+        self.assertEqual(purchase_unit["items"][0]["name"], "Ceramic Coffee Mug")
+        self.assertEqual(purchase_unit["items"][0]["quantity"], "1")
+        self.assertEqual(purchase_unit["items"][0]["unit_amount"]["value"], "18.00")
+        self.assertEqual(
+            purchase_unit["shipping"]["address"]["address_line_1"],
+            "123 Test Street",
+        )
+        self.assertEqual(
+            purchase_unit["shipping"]["address"]["country_code"], "US"
+        )
 
     @patch("app.main.create_paypal_order")
     @patch("app.main.get_access_token")
@@ -344,7 +378,7 @@ class PayPalCheckoutTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             create_checkout_order(
                 {
-                    "items": [{"sku": "SHIP-STD-001", "quantity": 1}],
+                    "items": [{"sku": "MUG-CER-001", "quantity": 1}],
                     "currency": "USD",
                 }
             )
@@ -375,8 +409,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -414,8 +448,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -451,8 +485,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -487,8 +521,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -524,8 +558,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -560,8 +594,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -588,7 +622,7 @@ class PayPalCheckoutTests(unittest.TestCase):
             "purchase_units": [
                 {
                     "reference_id": "default",
-                    "amount": {"currency_code": "USD", "value": "44.73"},
+                    "amount": {"currency_code": "USD", "value": "50.00"},
                     "payments": {
                         "captures": [
                             {
@@ -596,7 +630,7 @@ class PayPalCheckoutTests(unittest.TestCase):
                                 "status": "COMPLETED",
                                 "amount": {
                                     "currency_code": "USD",
-                                    "value": "44.73",
+                                    "value": "50.00",
                                 },
                             }
                         ]
@@ -617,8 +651,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -653,8 +687,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -690,8 +724,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -726,8 +760,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -763,7 +797,7 @@ class PayPalCheckoutTests(unittest.TestCase):
             }
             create_result = create_checkout_order(
                 {
-                    "items": [{"sku": "SHIP-STD-001", "quantity": 1}],
+                    "items": [{"sku": "MUG-CER-001", "quantity": 1}],
                     "currency": "USD",
                 }
             )
@@ -794,8 +828,8 @@ class PayPalCheckoutTests(unittest.TestCase):
             create_result = create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
                 }
@@ -823,7 +857,7 @@ class PayPalCheckoutTests(unittest.TestCase):
     def test_create_checkout_order_non_usd_rejected(self):
         with self.assertRaises(ValueError):
             create_order(
-                [{"sku": "SHIP-STD-001", "quantity": 1}], currency="EUR"
+                [{"sku": "MUG-CER-001", "quantity": 1}], currency="EUR"
             )
 
     def test_create_checkout_order_unknown_sku_rejected(self):

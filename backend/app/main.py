@@ -20,6 +20,7 @@ from app.store import (
     set_paypal_order_id,
     set_capture,
     create_manifest,
+    create_manifest_from_checkout_order,
     get_manifest,
     get_manifest_for_shipment,
     update_manifest,
@@ -93,24 +94,91 @@ def checkout_orders():
     return {"orders": store_list_orders()}
 
 
+def _normalize_checkout_details(payload: dict) -> tuple[str, dict]:
+    buyer_name = str(payload.get("buyer_name", "")).strip()
+    if not buyer_name or len(buyer_name) > 100:
+        raise HTTPException(
+            status_code=422,
+            detail="Enter the recipient's full name (up to 100 characters).",
+        )
+
+    raw_address = payload.get("shipping_address")
+    if not isinstance(raw_address, dict):
+        raise HTTPException(status_code=422, detail="Enter a delivery address.")
+
+    address = {
+        "address_line_1": str(raw_address.get("address_line_1", "")).strip(),
+        "address_line_2": str(raw_address.get("address_line_2", "")).strip(),
+        "city": str(raw_address.get("city", "")).strip(),
+        "state": str(raw_address.get("state", "")).strip(),
+        "postal_code": str(raw_address.get("postal_code", "")).strip(),
+        "country_code": str(raw_address.get("country_code", "")).strip().upper(),
+    }
+    required_fields = {
+        "street address": address["address_line_1"],
+        "city": address["city"],
+        "postal code": address["postal_code"],
+    }
+    missing = [name for name, value in required_fields.items() if not value]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Complete the delivery address: " + ", ".join(missing) + ".",
+        )
+    if len(address["country_code"]) != 2 or not address["country_code"].isalpha():
+        raise HTTPException(
+            status_code=422,
+            detail="Enter the two-letter country code, such as IN or US.",
+        )
+    if any(len(value) > 120 for value in address.values()):
+        raise HTTPException(status_code=422, detail="Delivery address fields are too long.")
+
+    return buyer_name, address
+
+
 @app.post("/api/checkout/orders")
 def create_checkout_order(payload: dict):
     items = payload.get("items", [])
     currency = str(payload.get("currency", "USD")).strip().upper()
+    buyer_name, shipping_address = _normalize_checkout_details(payload)
 
-    # Server-calculated order. Frontend prices/totals are never trusted.
-    order = create_order(items, currency)
+    # Authenticate before writing a local order so missing credentials do not
+    # leave an incomplete checkout record behind.
+    try:
+        token = get_access_token()
+    except PayPalConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
-    token = get_access_token()
-    total_cents = int(Decimal(order["total"]) * 100)
-
-    paypal_result = create_paypal_order(token, total_cents, currency)
-    paypal_order_id = paypal_result.get("id")
-
-    if not paypal_order_id:
-        raise HTTPException(
-            status_code=502, detail="PayPal did not return an order ID."
+    try:
+        order = create_order(
+            items,
+            currency,
+            buyer_name=buyer_name,
+            shipping_address=shipping_address,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    total_cents = int(Decimal(order["total"]) * 100)
+    try:
+        paypal_result = create_paypal_order(
+            token,
+            total_cents,
+            currency,
+            items=order["items"],
+            buyer_name=buyer_name,
+            shipping_address=shipping_address,
+        )
+    except (RuntimeError, ValueError) as exc:
+        set_capture(order["id"], "", "FAILED")
+        raise HTTPException(status_code=502, detail=f"PayPal could not create checkout: {exc}")
+
+    paypal_order_id = paypal_result.get("id")
+    if not paypal_order_id:
+        set_capture(order["id"], "", "FAILED")
+        raise HTTPException(status_code=502, detail="PayPal did not return an order ID.")
 
     set_paypal_order_id(order["id"], paypal_order_id)
 
@@ -121,9 +189,8 @@ def create_checkout_order(payload: dict):
             break
 
     if not approval_url:
-        raise HTTPException(
-            status_code=502, detail="PayPal did not return an approval link."
-        )
+        set_capture(order["id"], "", "FAILED")
+        raise HTTPException(status_code=502, detail="PayPal did not return an approval link.")
 
     return {
         "order_id": order["id"],
@@ -152,14 +219,24 @@ def capture_checkout_order(order_id: str, payload: dict):
                 paypal_capture_id=order.get("paypal_capture_id"),
                 amount=order.get("total", "0.00"),
                 currency=order.get("currency", "USD"),
+                shipping_address=order.get("shipping_address") or {},
+                buyer_name=order.get("buyer_name", ""),
             )
 
+        existing_manifest = (
+            create_manifest_from_checkout_order(existing_shipment["order_id"], order["id"])
+            if existing_shipment
+            else None
+        )
         return {
             "order_id": order["id"],
             "paypal_order_id": order.get("paypal_order_id"),
             "paypal_capture_id": order.get("paypal_capture_id"),
             "shipment_id": existing_shipment.get("id") if existing_shipment else None,
             "shipment_order_id": existing_shipment.get("order_id") if existing_shipment else None,
+            "manifest_id": existing_manifest.get("id") if existing_manifest else None,
+            "buyer_name": order.get("buyer_name", ""),
+            "shipping_address": order.get("shipping_address") or {},
             "payment_status": order.get("payment_status"),
             "already_captured": True,
         }
@@ -242,7 +319,7 @@ def capture_checkout_order(order_id: str, payload: dict):
             },
         )
 
-    if captured_currency != "USD":
+    if captured_currency != order.get("currency", "USD"):
         set_capture(order_id, capture_id, "FAILED")
         raise HTTPException(
             status_code=422,
@@ -293,8 +370,11 @@ def capture_checkout_order(order_id: str, payload: dict):
         paypal_order_id=paypal_order_id,
         paypal_capture_id=capture_id,
         amount=order["total"],
-        currency="USD",
+        currency=order.get("currency", "USD"),
+        shipping_address=order.get("shipping_address") or {},
+        buyer_name=order.get("buyer_name", ""),
     )
+    manifest = create_manifest_from_checkout_order(shipment["order_id"], order["id"])
 
     return {
         "order_id": order["id"],
@@ -302,6 +382,9 @@ def capture_checkout_order(order_id: str, payload: dict):
         "paypal_capture_id": capture_id,
         "shipment_id": shipment["id"],
         "shipment_order_id": shipment["order_id"],
+        "manifest_id": manifest["id"],
+        "buyer_name": order.get("buyer_name", ""),
+        "shipping_address": order.get("shipping_address") or {},
         "payment_status": "PAID",
         "already_captured": False,
     }
@@ -425,6 +508,12 @@ def _require_shipment_order(shipment_order_id: str) -> dict:
 def create_shipment_manifest(shipment_order_id: str, payload: dict):
     """Create a DRAFT manifest for an existing shipment evidence record."""
     _require_shipment_order(shipment_order_id)
+
+    # Paid checkouts already have a manifest generated from the actual items
+    # purchased. Return it on repeat requests instead of creating a duplicate.
+    existing_manifest = get_manifest_for_shipment(shipment_order_id)
+    if existing_manifest is not None:
+        return existing_manifest
 
     items = payload.get("items")
     if not isinstance(items, list):

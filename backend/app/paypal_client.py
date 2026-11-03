@@ -107,13 +107,81 @@ def submit_tracking(order: dict) -> dict:
     return body
 
 
-def create_paypal_order(token: str, amount_cents: int, currency: str = "USD") -> dict:
+def create_paypal_order(
+    token: str,
+    amount_cents: int,
+    currency: str = "USD",
+    items: list[dict] | None = None,
+    buyer_name: str = "",
+    shipping_address: dict | None = None,
+) -> dict:
+    """Create an Orders v2 checkout with persisted line items and buyer delivery details."""
+    from os import getenv
+
+    if not items:
+        raise ValueError("At least one persisted order item is required for PayPal checkout.")
+    if not isinstance(shipping_address, dict):
+        raise ValueError("A structured shipping address is required for physical goods.")
+
+    paypal_items = []
+    computed_item_total = 0
+    for item in items:
+        quantity = item.get("quantity")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError("PayPal item quantity must be a positive integer.")
+        unit_amount = Decimal(str(item.get("unit_price", "0"))).quantize(TWO_PLACES)
+        if unit_amount <= 0:
+            raise ValueError("PayPal item unit amount must be positive.")
+        line_total = unit_amount * quantity
+        computed_item_total += int(line_total * 100)
+        paypal_item = {
+            "name": str(item.get("name", "")).strip()[:127],
+            "quantity": str(quantity),
+            "unit_amount": {
+                "currency_code": currency,
+                "value": str(unit_amount),
+            },
+            "category": "PHYSICAL_GOODS",
+        }
+        if item.get("sku"):
+            paypal_item["sku"] = str(item["sku"])[:50]
+        paypal_items.append(paypal_item)
+
+    if computed_item_total != amount_cents:
+        raise ValueError("Persisted PayPal line items do not add up to the server-calculated order total.")
+
+    address = {
+        "address_line_1": str(shipping_address.get("address_line_1", "")).strip(),
+        "admin_area_2": str(shipping_address.get("city", "")).strip(),
+        "postal_code": str(shipping_address.get("postal_code", "")).strip(),
+        "country_code": str(shipping_address.get("country_code", "")).strip().upper(),
+    }
+    if shipping_address.get("address_line_2"):
+        address["address_line_2"] = str(shipping_address["address_line_2"]).strip()
+    if shipping_address.get("state"):
+        address["admin_area_1"] = str(shipping_address["state"]).strip()
+
+    frontend_url = getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    return_url = getenv("PAYPAL_RETURN_URL", f"{frontend_url}/checkout/return")
+    cancel_url = getenv("PAYPAL_CANCEL_URL", f"{frontend_url}/checkout/cancel")
+
     body = {
         "intent": "CAPTURE",
         "purchase_units": [{
             "amount": {
                 "currency_code": currency,
                 "value": _money(amount_cents),
+                "breakdown": {
+                    "item_total": {
+                        "currency_code": currency,
+                        "value": _money(computed_item_total),
+                    }
+                },
+            },
+            "items": paypal_items,
+            "shipping": {
+                "name": {"full_name": str(buyer_name).strip()},
+                "address": address,
             },
         }],
         "payment_source": {
@@ -122,9 +190,9 @@ def create_paypal_order(token: str, amount_cents: int, currency: str = "USD") ->
                     "brand_name": "ShipProof AI",
                     "locale": "en-US",
                     "landing_page": "LOGIN",
-                    "shipping_preference": "NO_SHIPPING",
-                    "return_url": "http://localhost:5173/checkout/return",
-                    "cancel_url": "http://localhost:5173/checkout/cancel",
+                    "shipping_preference": "SET_PROVIDED_ADDRESS",
+                    "return_url": return_url,
+                    "cancel_url": cancel_url,
                 }
             }
         },

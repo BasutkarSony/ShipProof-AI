@@ -16,24 +16,40 @@ def _money(cents: int) -> str:
 
 CATALOGUE = [
     {
-        "sku": "SHIP-STD-001",
-        "name": "Standard Shipping Box",
-        "description": "Sturdy corrugated box for standard parcels.",
-        "price": Decimal("12.99"),
+        "sku": "MUG-CER-001",
+        "name": "Ceramic Coffee Mug",
+        "description": "Stoneware coffee mug with a glazed finish.",
+        "price": Decimal("18.00"),
+        "fragile": True,
     },
     {
-        "sku": "SHIP-HEV-002",
-        "name": "Heavy Duty Mailer",
-        "description": "Reinforced mailer for heavy items up to 20 kg.",
-        "price": Decimal("24.50"),
+        "sku": "TOTE-COT-002",
+        "name": "Cotton Canvas Tote Bag",
+        "description": "Reusable everyday tote made from durable cotton canvas.",
+        "price": Decimal("14.00"),
+        "fragile": False,
     },
     {
-        "sku": "SHIP-FRA-003",
-        "name": "Fragile Item Packaging",
-        "description": "Double-walled box with padding for fragile goods.",
-        "price": Decimal("18.75"),
+        "sku": "NOTE-A5-003",
+        "name": "A5 Hardcover Notebook",
+        "description": "Hardcover ruled notebook with 160 pages.",
+        "price": Decimal("12.50"),
+        "fragile": False,
     },
 ]
+
+LEGACY_DEMO_PRODUCTS = (
+    ("SHIP-STD-001", "Standard Shipping Box"),
+    ("SHIP-HEV-002", "Heavy Duty Mailer"),
+    ("SHIP-FRA-003", "Fragile Item Packaging"),
+)
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
+    """Add a column to an existing SQLite table without replacing stored data."""
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
 def _connect(timeout: float = 30.0) -> sqlite3.Connection:
@@ -53,7 +69,9 @@ def init_db() -> None:
                 sku TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
-                price_cents INTEGER NOT NULL
+                price_cents INTEGER NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                fragile INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS orders (
                 id TEXT PRIMARY KEY,
@@ -62,6 +80,8 @@ def init_db() -> None:
                 payment_status TEXT NOT NULL DEFAULT 'CREATED',
                 currency TEXT NOT NULL DEFAULT 'USD',
                 total_cents INTEGER NOT NULL DEFAULT 0,
+                buyer_name TEXT NOT NULL DEFAULT '',
+                shipping_address TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -72,7 +92,8 @@ def init_db() -> None:
                 product_name TEXT NOT NULL,
                 quantity INTEGER NOT NULL,
                 unit_price_cents INTEGER NOT NULL,
-                line_total_cents INTEGER NOT NULL
+                line_total_cents INTEGER NOT NULL,
+                fragile INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_orders_paypal_order_id ON orders(paypal_order_id);
             CREATE INDEX IF NOT EXISTS idx_orders_paypal_capture_id ON orders(paypal_capture_id);
@@ -95,7 +116,8 @@ def init_db() -> None:
                 description TEXT NOT NULL,
                 expected_qty INTEGER NOT NULL,
                 unit_value_cents INTEGER,
-                fragile INTEGER NOT NULL DEFAULT 0
+                fragile INTEGER NOT NULL DEFAULT 0,
+                source_order_item_id TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_manifest_items_manifest_id
                 ON manifest_items(manifest_id);
@@ -138,6 +160,7 @@ def init_db() -> None:
                 amount REAL NOT NULL,
                 currency TEXT NOT NULL DEFAULT 'USD',
                 shipping_address TEXT NOT NULL DEFAULT '',
+                buyer_name TEXT NOT NULL DEFAULT '',
                 evidence_text TEXT NOT NULL DEFAULT '',
                 signature_obtained INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -149,14 +172,44 @@ def init_db() -> None:
                 ON shipments(paypal_capture_id);
             """
         )
+        # Add columns to databases created by earlier versions without
+        # replacing or deleting existing customer, order, or evidence records.
+        _ensure_column(conn, "products", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        _ensure_column(conn, "products", "fragile", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "orders", "buyer_name", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "orders", "shipping_address", "TEXT NOT NULL DEFAULT '{}'")
+        _ensure_column(conn, "order_items", "fragile", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "manifest_items", "source_order_item_id", "TEXT")
+        _ensure_column(conn, "shipments", "buyer_name", "TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manifest_items_source_order_item "
+            "ON manifest_items(source_order_item_id)"
+        )
+
+        # Hide only the exact legacy built-in packaging demos. Historical
+        # order_items remain untouched, and merchant-edited catalogue rows survive.
+        for legacy_sku, legacy_name in LEGACY_DEMO_PRODUCTS:
+            conn.execute(
+                "UPDATE products SET is_active = 0 WHERE sku = ? AND name = ?",
+                (legacy_sku, legacy_name),
+            )
+
+        # Do not overwrite catalogue edits every time the application starts.
         for product in CATALOGUE:
             price_cents = int((product["price"] * 100))
             conn.execute(
                 """
-                INSERT OR REPLACE INTO products (sku, name, description, price_cents)
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO products
+                    (sku, name, description, price_cents, is_active, fragile)
+                VALUES (?, ?, ?, ?, 1, ?)
                 """,
-                (product["sku"], product["name"], product["description"], price_cents),
+                (
+                    product["sku"],
+                    product["name"],
+                    product["description"],
+                    price_cents,
+                    1 if product.get("fragile") else 0,
+                ),
             )
         conn.commit()
     finally:
@@ -167,7 +220,8 @@ def get_catalogue() -> list[dict]:
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT sku, name, description, price_cents FROM products ORDER BY sku"
+            "SELECT sku, name, description, price_cents, fragile FROM products "
+            "WHERE is_active = 1 ORDER BY sku"
         ).fetchall()
         return [
             {
@@ -176,6 +230,7 @@ def get_catalogue() -> list[dict]:
                 "description": row["description"],
                 "price": _money(row["price_cents"]),
                 "currency": "USD",
+                "fragile": bool(row["fragile"]),
             }
             for row in rows
         ]
@@ -183,10 +238,16 @@ def get_catalogue() -> list[dict]:
         conn.close()
 
 
-def create_order(items: list[dict], currency: str = "USD") -> dict:
-    """Create a persistent order with server-calculated totals.
+def create_order(
+    items: list[dict],
+    currency: str = "USD",
+    buyer_name: str = "",
+    shipping_address: dict | None = None,
+) -> dict:
+    """Create an order with server-priced item snapshots and buyer delivery details.
 
-    items: list of {"sku": str, "quantity": int}
+    Items are supplied as {"sku": str, "quantity": int}; prices and names are
+    always read from the active server-side catalogue.
     """
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -196,12 +257,20 @@ def create_order(items: list[dict], currency: str = "USD") -> dict:
 
     if not items:
         raise ValueError("Order must contain at least one item.")
+    if not isinstance(shipping_address, (dict, type(None))):
+        raise ValueError("Shipping address must be an object.")
+    buyer_name = str(buyer_name or "").strip()
+    shipping_address = shipping_address or {}
+    shipping_address_json = json.dumps(shipping_address, sort_keys=True)
 
     conn = _connect()
     try:
-        catalogue = {}
-        for row in conn.execute("SELECT sku, price_cents FROM products"):
-            catalogue[row["sku"]] = row["price_cents"]
+        catalogue = {
+            row["sku"]: dict(row)
+            for row in conn.execute(
+                "SELECT sku, price_cents, name, fragile FROM products WHERE is_active = 1"
+            )
+        }
 
         total_cents = 0
         order_items = []
@@ -214,38 +283,46 @@ def create_order(items: list[dict], currency: str = "USD") -> dict:
                 raise ValueError(f"Unknown product SKU: {sku}")
             if quantity <= 0:
                 raise ValueError(f"Quantity must be positive for SKU: {sku}")
-            unit_price_cents = catalogue[sku]
+            product = catalogue[sku]
+            unit_price_cents = product["price_cents"]
             line_total_cents = unit_price_cents * quantity
             total_cents += line_total_cents
-            product_row = conn.execute(
-                "SELECT name FROM products WHERE sku = ?", (sku,)
-            ).fetchone()
             order_items.append(
                 {
                     "id": str(uuid.uuid4()),
                     "order_id": order_id,
                     "product_sku": sku,
-                    "product_name": product_row["name"],
+                    "product_name": product["name"],
                     "quantity": quantity,
                     "unit_price_cents": unit_price_cents,
                     "line_total_cents": line_total_cents,
+                    "fragile": bool(product["fragile"]),
                 }
             )
 
         conn.execute(
             """
             INSERT INTO orders (id, paypal_order_id, paypal_capture_id, payment_status,
-                                currency, total_cents, created_at, updated_at)
-            VALUES (?, NULL, NULL, 'CREATED', ?, ?, ?, ?)
+                                currency, total_cents, buyer_name, shipping_address,
+                                created_at, updated_at)
+            VALUES (?, NULL, NULL, 'CREATED', ?, ?, ?, ?, ?, ?)
             """,
-            (order_id, currency, total_cents, now, now),
+            (
+                order_id,
+                currency,
+                total_cents,
+                buyer_name,
+                shipping_address_json,
+                now,
+                now,
+            ),
         )
         for oi in order_items:
             conn.execute(
                 """
                 INSERT INTO order_items (id, order_id, product_sku, product_name,
-                                         quantity, unit_price_cents, line_total_cents)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                         quantity, unit_price_cents, line_total_cents, fragile)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     oi["id"],
@@ -255,6 +332,7 @@ def create_order(items: list[dict], currency: str = "USD") -> dict:
                     oi["quantity"],
                     oi["unit_price_cents"],
                     oi["line_total_cents"],
+                    1 if oi["fragile"] else 0,
                 ),
             )
         conn.commit()
@@ -280,7 +358,14 @@ def set_paypal_order_id(order_id: str, paypal_order_id: str) -> None:
         conn.close()
 
 
-def set_capture(order_id: str, paypal_capture_id: str, payment_status: str) -> None:
+def set_capture(
+    order_id: str, paypal_capture_id: str | None, payment_status: str
+) -> None:
+    # An empty capture ID means no capture exists. Store NULL rather than an
+    # empty string so multiple failed/uncompleted orders do not collide on the
+    # UNIQUE paypal_capture_id constraint.
+    stored_capture_id = str(paypal_capture_id).strip() if paypal_capture_id else None
+    stored_capture_id = stored_capture_id or None
     conn = _connect()
     try:
         conn.execute(
@@ -289,7 +374,7 @@ def set_capture(order_id: str, paypal_capture_id: str, payment_status: str) -> N
             SET paypal_capture_id = ?, payment_status = ?, updated_at = ?
             WHERE id = ?
             """,
-            (paypal_capture_id, payment_status, datetime.now(timezone.utc).isoformat(), order_id),
+            (stored_capture_id, payment_status, datetime.now(timezone.utc).isoformat(), order_id),
         )
         conn.commit()
     finally:
@@ -305,21 +390,30 @@ def get_order(order_id: str) -> dict | None:
         order = dict(row)
         items = conn.execute(
             """
-            SELECT product_sku, product_name, quantity, unit_price_cents, line_total_cents
+            SELECT id, product_sku, product_name, quantity, unit_price_cents,
+                   line_total_cents, fragile
             FROM order_items WHERE order_id = ?
             """,
             (order_id,),
         ).fetchall()
         order["items"] = [
             {
+                "id": item["id"],
                 "sku": item["product_sku"],
                 "name": item["product_name"],
                 "quantity": item["quantity"],
                 "unit_price": _money(item["unit_price_cents"]),
                 "line_total": _money(item["line_total_cents"]),
+                "fragile": bool(item["fragile"]),
             }
             for item in items
         ]
+        raw_address = order.get("shipping_address") or "{}"
+        try:
+            parsed_address = json.loads(raw_address)
+            order["shipping_address"] = parsed_address if isinstance(parsed_address, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            order["shipping_address"] = {}
         order["total"] = _money(order["total_cents"])
         del order["total_cents"]
         return order
@@ -402,6 +496,11 @@ def _compute_manifest_hash(
             "manifest_id": item["manifest_id"],
             "sku": item.get("sku"),
             "unit_value_cents": item.get("unit_value_cents"),
+            **(
+                {"source_order_item_id": item.get("source_order_item_id")}
+                if item.get("source_order_item_id")
+                else {}
+            ),
         })
     # Sort items by their stable id so identical content always produces the
     # same digest regardless of insertion order.
@@ -449,8 +548,8 @@ def create_manifest(shipment_order_id: str, items: list[dict], notes: str | None
                     """
                     INSERT INTO manifest_items
                         (id, manifest_id, sku, description, expected_qty,
-                         unit_value_cents, fragile)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                         unit_value_cents, fragile, source_order_item_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -460,8 +559,109 @@ def create_manifest(shipment_order_id: str, items: list[dict], notes: str | None
                         int(item["expected_qty"]),
                         int(item["unit_value_cents"]) if item.get("unit_value_cents") is not None else None,
                         1 if item.get("fragile") else 0,
+                        str(item["source_order_item_id"]).strip()
+                        if item.get("source_order_item_id")
+                        else None,
                     ),
                 )
+    finally:
+        conn.close()
+
+    return get_manifest(manifest_id)
+
+
+def create_manifest_from_checkout_order(shipment_order_id: str, checkout_order_id: str) -> dict:
+    """Create or recover the draft manifest from the exact items on a paid order."""
+    conn = _connect()
+    manifest_id = None
+    try:
+        # Serialize concurrent retries so two capture callbacks cannot create
+        # separate first manifests for the same paid checkout order.
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            """
+            SELECT id FROM shipment_manifests
+            WHERE shipment_order_id = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (shipment_order_id,),
+        ).fetchone()
+        if existing:
+            manifest_id = existing["id"]
+            conn.commit()
+        else:
+            shipment = conn.execute(
+                "SELECT checkout_order_id FROM shipments WHERE order_id = ?",
+                (shipment_order_id,),
+            ).fetchone()
+            if not shipment or shipment["checkout_order_id"] != checkout_order_id:
+                raise ValueError("Shipment does not belong to the supplied checkout order.")
+
+            order = conn.execute(
+                "SELECT payment_status FROM orders WHERE id = ?", (checkout_order_id,)
+            ).fetchone()
+            if not order or order["payment_status"] != "PAID":
+                raise ValueError("A manifest can only be generated from a paid checkout order.")
+
+            order_items = conn.execute(
+                """
+                SELECT id, product_sku, product_name, quantity, unit_price_cents, fragile
+                FROM order_items WHERE order_id = ? ORDER BY rowid
+                """,
+                (checkout_order_id,),
+            ).fetchall()
+            items = [
+                {
+                    "source_order_item_id": row["id"],
+                    "sku": row["product_sku"],
+                    "description": row["product_name"],
+                    "expected_qty": row["quantity"],
+                    "unit_value_cents": row["unit_price_cents"],
+                    "fragile": bool(row["fragile"]),
+                }
+                for row in order_items
+            ]
+            _validate_manifest_items(items)
+            manifest_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """
+                INSERT INTO shipment_manifests
+                    (id, shipment_order_id, status, notes, manifest_hash, created_at, updated_at)
+                VALUES (?, ?, 'DRAFT', ?, NULL, ?, ?)
+                """,
+                (
+                    manifest_id,
+                    shipment_order_id,
+                    f"Generated from paid checkout order {checkout_order_id}. Review before packing.",
+                    now,
+                    now,
+                ),
+            )
+            for item in items:
+                conn.execute(
+                    """
+                    INSERT INTO manifest_items
+                        (id, manifest_id, sku, description, expected_qty,
+                         unit_value_cents, fragile, source_order_item_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        manifest_id,
+                        item["sku"],
+                        item["description"],
+                        item["expected_qty"],
+                        item["unit_value_cents"],
+                        1 if item.get("fragile") else 0,
+                        item["source_order_item_id"],
+                    ),
+                )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -481,7 +681,7 @@ def get_manifest(manifest_id: str) -> dict | None:
         item_rows = conn.execute(
             """
             SELECT id, manifest_id, sku, description, expected_qty,
-                   unit_value_cents, fragile
+                   unit_value_cents, fragile, source_order_item_id
             FROM manifest_items WHERE manifest_id = ?
             ORDER BY rowid
             """,
@@ -496,6 +696,7 @@ def get_manifest(manifest_id: str) -> dict | None:
                 "expected_qty": r["expected_qty"],
                 "unit_value_cents": r["unit_value_cents"],
                 "fragile": bool(r["fragile"]),
+                "source_order_item_id": r["source_order_item_id"],
             }
             for r in item_rows
         ]
@@ -739,6 +940,29 @@ def list_inspections_for_manifest(manifest_id: str) -> list[dict]:
 def _row_to_shipment(row: sqlite3.Row) -> dict:
     rec = dict(row)
     rec["signature_obtained"] = bool(rec.get("signature_obtained", 0))
+    # Keep a structured copy for future carrier/address integrations, while
+    # exposing a readable destination string to the existing shipment UI.
+    raw_address = rec.get("shipping_address")
+    try:
+        parsed_address = json.loads(raw_address) if isinstance(raw_address, str) else raw_address
+    except (TypeError, json.JSONDecodeError):
+        parsed_address = None
+    if isinstance(parsed_address, dict):
+        rec["shipping_address_details"] = parsed_address
+        rec["shipping_address"] = ", ".join(
+            str(parsed_address.get(key, "")).strip()
+            for key in (
+                "address_line_1",
+                "address_line_2",
+                "city",
+                "state",
+                "postal_code",
+                "country_code",
+            )
+            if str(parsed_address.get(key, "")).strip()
+        )
+    elif raw_address is None:
+        rec["shipping_address"] = ""
     # Make sure transaction_id maps to paypal_capture_id for validator/payload compatibility
     if "transaction_id" not in rec or not rec["transaction_id"]:
         rec["transaction_id"] = rec.get("paypal_capture_id", "")
@@ -751,7 +975,8 @@ def create_shipment_for_order(
     paypal_capture_id: str,
     amount: Decimal | float | int | str,
     currency: str = "USD",
-    shipping_address: str = "",
+    shipping_address: str | dict = "",
+    buyer_name: str = "",
     carrier: str = "OTHER",
     carrier_name_other: str = "UNASSIGNED",
     tracking_number: str = "",
@@ -777,6 +1002,12 @@ def create_shipment_for_order(
     - Never runs recovery queries on a broken connection.
     """
     import time
+
+    if isinstance(shipping_address, dict):
+        shipping_address = json.dumps(shipping_address, sort_keys=True)
+    elif shipping_address is None:
+        shipping_address = "{}"
+    buyer_name = str(buyer_name or "").strip()
 
     max_retries = 5
     for attempt in range(max_retries):
@@ -873,8 +1104,8 @@ def create_shipment_for_order(
                             id, order_id, checkout_order_id, paypal_order_id, paypal_capture_id,
                             tracking_number, carrier, carrier_name_other, status,
                             shipped_date, delivered_date, transaction_date, amount, currency,
-                            shipping_address, evidence_text, signature_obtained, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+                            shipping_address, buyer_name, evidence_text, signature_obtained, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                         """,
                         (
                             shipment_uuid,
@@ -890,6 +1121,7 @@ def create_shipment_for_order(
                             amount_val,
                             currency,
                             shipping_address,
+                            buyer_name,
                             evidence_text,
                             now_iso,
                             now_iso,

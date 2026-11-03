@@ -2885,3 +2885,70 @@ footer p {
     align-items: flex-start;
   }
 }
+
+
+/* ─── Buyer delivery details in the demo storefront ───────────────────────── */
+.checkout-address-form {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.checkout-address-title {
+  color: var(--navy);
+  font: 700 14px var(--font-mono);
+  margin: 0 0 5px;
+}
+
+.checkout-address-note {
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.checkout-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.checkout-field small {
+  color: var(--text-subtle);
+  font-weight: 400;
+}
+
+.checkout-field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 9px 10px;
+  font: 12px var(--font-sans);
+  outline: none;
+}
+
+.checkout-field input:focus {
+  border-color: var(--cobalt);
+  box-shadow: 0 0 0 2px var(--info-bg);
+}
+
+.checkout-field input::placeholder {
+  color: var(--text-subtle);
+  opacity: 0.8;
+}
+
+.checkout-address-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}

@@ -2,11 +2,11 @@
 
 # ShipProof AI
 
-### Shipment Evidence Intelligence for PayPal Merchants
+### PayPal-Connected Order Fulfilment & Evidence
 
-**Validate. Investigate. Remediate. Prepare with confidence.**
+**From paid order to reviewed packing evidence and shipment tracking.**
 
-A shipment-evidence review assistant that helps merchants identify incomplete tracking records, inconsistent shipment information, and evidence gaps before preparing PayPal tracking submissions.
+A fulfilment workspace for online merchants that connects PayPal payments to the exact products purchased, order-derived packing manifests, AI-assisted visual inspection, human review and shipment tracking.
 
 <br />
 
@@ -26,11 +26,9 @@ A shipment-evidence review assistant that helps merchants identify incomplete tr
 
 ## The problem
 
-Shipment information is often spread across order records, tracking numbers, carrier updates, delivery events, and payment transactions.
+For small online merchants, payment details, product lists, packing checks and shipment tracking can sit in separate tools. When a buyer reports a missing or incorrect item, the merchant may have to reconstruct what was purchased, packed and shipped.
 
-When this information is incomplete or inconsistent, merchants must manually investigate and correct records before preparing shipment evidence.
-
-**ShipProof AI addresses this preparation gap.**
+**ShipProof AI connects those steps to one paid order and shipment record.**
 
 It provides a centralized workflow for reviewing shipment data, identifying evidence-quality issues, understanding potential risks, and preparing a PayPal tracking payload for review.
 
@@ -38,70 +36,52 @@ It provides a centralized workflow for reviewing shipment data, identifying evid
 
 | Capability | What it provides |
 |---|---|
-| Shipment validation | Checks required shipment, order, transaction, tracking, and carrier information. |
-| Evidence analysis | Examines tracking patterns, delivery milestones, exceptions, and signature-related indicators. |
-| Issue detection | Highlights missing information, invalid dates, inconsistencies, and evidence gaps. |
-| Evidence remediation | Allows merchants to review and edit shipment information and recalculate validation. |
-| Readiness assessment | Presents an advisory evidence-quality assessment with actionable findings. |
-| PayPal integration | Supports Sandbox OAuth verification and tracking payload preparation. |
-| Payment-to-shipment integration | Links verified PayPal checkout captures directly to persistent shipment records and manifests. |
-| Submission safeguards | Keeps tracking writes disabled by default. |
+| Buyer checkout | A small storefront for physical merchandise with recipient and delivery details. |
+| PayPal payment | PayPal Sandbox Orders v2 checkout with server-priced item lines and verified capture. |
+| Order-derived manifest | Creates the packing manifest from the exact items and quantities in the paid order. |
+| Packing inspection | Uses Gemini for visual observations while keeping the decision with a human reviewer. |
+| Shipment linkage | Carries the local order, PayPal order, capture and buyer delivery details into one shipment record. |
+| Evidence review | Helps merchants examine shipment data and identify evidence-quality gaps. |
+| Tracking preparation | Prepares shipment tracking information with external writes disabled by default. |
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["Select Shipment"] --> B["Validate Shipment Data"]
-    B --> C["Analyze Evidence"]
-    C --> D{"Issues Found?"}
-    D -->|Yes| E["Review Findings"]
-    E --> F["Correct or Confirm Evidence"]
-    F --> G["Recalculate Validation"]
-    D -->|No| G
-    G --> H["Review Evidence Quality"]
-    H --> I["Generate PayPal Payload Preview"]
-    I --> J["Merchant Review"]
-    J --> K["Tracking Submission Gate"]
-    K --> L["Disabled by Default"]
+    A["Buyer selects merchandise"] --> B["Enter delivery address"]
+    B --> C["Approve PayPal Sandbox payment"]
+    C --> D["Verify completed capture"]
+    D --> E["Create linked shipment"]
+    E --> F["Generate manifest from paid order items"]
+    F --> G["Merchant reviews and finalizes manifest"]
+    G --> H["Upload packing photographs"]
+    H --> I["Gemini visual inspection"]
+    I --> J["Human review"]
+    J --> K["Add carrier and tracking"]
+    K --> L["Prepare matching PayPal tracking update"]
 ```
 
 ## Core workflow
 
-### 01 — Select a shipment
+### 01 — Buyer checkout
 
-Review shipment records with their order references, tracking information, carrier, destination, and current status.
+The buyer selects physical merchandise, enters a recipient and delivery address, then approves the payment in PayPal Sandbox.
 
-### 02 — Identify evidence issues
+### 02 — Verify payment and create fulfilment records
 
-Analyze shipment information to identify:
+The backend calculates the total from the active catalogue and sends the persisted item lines and delivery address to PayPal Orders v2. Only a completed capture with the expected order ID, capture ID, currency and amount is marked as paid. That paid order creates one linked shipment and a DRAFT manifest derived from the exact purchased items.
 
-- Missing tracking information.
-- Invalid carrier and tracking-number combinations.
-- Shipment and delivery date inconsistencies.
-- Delivery exceptions and suspicious milestone sequences.
-- Destination and address inconsistencies.
-- Signature-related evidence gaps.
+### 03 — Prepare and review the packing manifest
 
-### 03 — Review and remediate
+The merchant reviews the purchased items, quantities, SKU, item value and fragile flags. The manifest can be finalized and fingerprinted before the packing inspection begins.
 
-Open the evidence inspector, examine findings, edit available shipment information, and recalculate the assessment.
+### 04 — Record packing evidence
 
-Merchant-provided statements are not equivalent to independently verified carrier evidence.
+Packing staff upload photographs for Gemini visual inspection. The model reports visible observations and uncertainty; it cannot verify the contents of a sealed package or make the merchant's final decision. Every inspection remains pending human review.
 
-### 04 — Review the PayPal payload
+### 05 — Add shipment tracking and review evidence
 
-Inspect the generated tracking payload before any external operation.
-
-The standard workflow does not automatically submit tracking information.
-
-### 05 — Packaging checkout & payment-to-shipment workflow
-
-Merchants can order packaging supplies through the catalogue checkout:
-- **Server-Calculated Orders**: Client-side prices and totals are never trusted; order totals are computed from the server catalog.
-- **Strict Verification**: PayPal Sandbox order captures are strictly validated for completed status, USD currency, and exact amount matching before marking an order as `PAID`.
-- **Persistent Shipment Linkage**: Upon successful verification, a persistent shipment record is automatically created and idempotently linked to the checkout order via `checkout_order_id` and `paypal_capture_id`.
-- **Manifest Management**: Newly paid shipments appear in Shipment & Manifest Management. Merchants create and edit DRAFT manifests for the actual merchandise being shipped (purchased packaging supplies are not automatically treated as shipment contents).
-- **Packing Station & AI Review**: Finalized manifests with deterministic SHA-256 fingerprints proceed to the Packing Station for photo upload and Gemini inspection (held at `PENDING_HUMAN_REVIEW`).
+The merchant records the carrier and tracking number, then reviews the associated payment, order, manifest and packing evidence. Tracking submission is a separate action and stays disabled by default. Evidence-quality checks are advisory and do not determine official PayPal Seller Protection eligibility.
 
 ## Technology stack
 

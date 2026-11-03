@@ -6,7 +6,7 @@ Conventions followed:
 - FastAPI handler functions called directly (same pattern as test_paypal_checkout.py).
   No HTTP client library is required.
 - No Gemini API calls, no external HTTP calls.
-- Checkout orders and their packaging catalogue must remain unaffected.
+- Checkout orders and their demo storefront catalogue must remain unaffected.
 """
 import os
 import sys
@@ -259,20 +259,20 @@ class ManifestStoreTests(unittest.TestCase):
     # -- Checkout isolation --------------------------------------------------
 
     def test_checkout_catalogue_unaffected(self):
-        """Manifest operations must not change the packaging product catalogue."""
+        """Manifest operations must not change the demo storefront catalogue."""
         create_manifest(SHIPMENT_ORDER_ID, [_item()])
         products = get_catalogue()
         self.assertEqual(len(products), 3)
         skus = {p["sku"] for p in products}
-        self.assertEqual(skus, {"SHIP-STD-001", "SHIP-HEV-002", "SHIP-FRA-003"})
+        self.assertEqual(skus, {"MUG-CER-001", "TOTE-COT-002", "NOTE-A5-003"})
 
     def test_checkout_order_items_unaffected(self):
         """Manifest items must not appear in checkout order_items."""
-        checkout = create_order([{"sku": "SHIP-STD-001", "quantity": 2}])
+        checkout = create_order([{"sku": "MUG-CER-001", "quantity": 2}])
         create_manifest(SHIPMENT_ORDER_ID, [_item("Smartwatch", qty=1, sku="SW-X1")])
         fetched = get_order(checkout["id"])
         self.assertEqual(len(fetched["items"]), 1)
-        self.assertEqual(fetched["items"][0]["sku"], "SHIP-STD-001")
+        self.assertEqual(fetched["items"][0]["sku"], "MUG-CER-001")
 
     def test_init_db_creates_manifest_tables(self):
         """Both new tables must be present after init_db."""
@@ -468,7 +468,7 @@ class ManifestAPITests(unittest.TestCase):
         products = get_catalogue()
         self.assertEqual(len(products), 3)
         skus = {p["sku"] for p in products}
-        self.assertEqual(skus, {"SHIP-STD-001", "SHIP-HEV-002", "SHIP-FRA-003"})
+        self.assertEqual(skus, {"MUG-CER-001", "TOTE-COT-002", "NOTE-A5-003"})
 
 
 if __name__ == "__main__":

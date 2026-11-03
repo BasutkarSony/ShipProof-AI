@@ -36,13 +36,13 @@ CAPTURE_SUCCESS = {
     "purchase_units": [
         {
             "reference_id": "default",
-            "amount": {"currency_code": "USD", "value": "44.73"},
+            "amount": {"currency_code": "USD", "value": "50.00"},
             "payments": {
                 "captures": [
                     {
                         "id": "CAPTURE-789",
                         "status": "COMPLETED",
-                        "amount": {"currency_code": "USD", "value": "44.73"},
+                        "amount": {"currency_code": "USD", "value": "50.00"},
                     }
                 ]
             },
@@ -77,12 +77,50 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
             return create_checkout_order(
                 {
                     "items": [
-                        {"sku": "SHIP-STD-001", "quantity": 2},
-                        {"sku": "SHIP-FRA-003", "quantity": 1},
+                        {"sku": "MUG-CER-001", "quantity": 2},
+                        {"sku": "TOTE-COT-002", "quantity": 1},
                     ],
                     "currency": "USD",
+                    "buyer_name": "Demo Buyer",
+                    "shipping_address": {
+                        "address_line_1": "123 Sample Street",
+                        "city": "Austin",
+                        "state": "TX",
+                        "postal_code": "78701",
+                        "country_code": "US",
+                    },
                 }
             )
+
+    def test_checkout_sends_order_items_and_shipping_details_to_paypal(self):
+        with patch("app.main.create_paypal_order") as mock_create, patch(
+            "app.main.get_access_token"
+        ) as mock_token:
+            mock_token.return_value = "test-token"
+            mock_create.return_value = {
+                "id": "PAYPAL-ORDER-789",
+                "links": [{"rel": "approve", "href": "https://example.com/approve"}],
+            }
+            result = self._create_mock_order()
+
+        self.assertEqual(result["total"], "50.00")
+        args = mock_create.call_args
+        self.assertEqual(args.args[1], 5000)
+        self.assertEqual(args.args[2], "USD")
+        self.assertEqual(args.kwargs["items"][0]["name"], "Ceramic Coffee Mug")
+        self.assertEqual(args.kwargs["items"][0]["quantity"], 2)
+        self.assertEqual(args.kwargs["shipping_address"]["country_code"], "US")
+        self.assertEqual(args.kwargs["buyer_name"], "Demo Buyer")
+
+    def test_checkout_rejects_missing_delivery_details(self):
+        with patch("app.main.get_access_token") as mock_token:
+            with self.assertRaises(HTTPException) as ctx:
+                create_checkout_order({
+                    "items": [{"sku": "MUG-CER-001", "quantity": 1}],
+                    "currency": "USD",
+                })
+        self.assertEqual(ctx.exception.status_code, 422)
+        mock_token.assert_not_called()
 
     @patch("app.main.capture_paypal_order")
     @patch("app.main.get_access_token")
@@ -105,12 +143,13 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         self.assertEqual(shipment["checkout_order_id"], order_res["order_id"])
         self.assertEqual(shipment["paypal_capture_id"], "CAPTURE-789")
         self.assertEqual(shipment["paypal_order_id"], "PAYPAL-ORDER-789")
-        self.assertEqual(float(shipment["amount"]), 44.73)
+        self.assertEqual(float(shipment["amount"]), 50.00)
         self.assertEqual(shipment["currency"], "USD")
         self.assertEqual(shipment["status"], "ON_HOLD")
         self.assertIsNone(shipment["shipped_date"])
         self.assertEqual(shipment["tracking_number"], "")
-        self.assertEqual(shipment["shipping_address"], "")
+        self.assertIn("123 Sample Street", shipment["shipping_address"])
+        self.assertEqual(shipment["buyer_name"], "Demo Buyer")
         self.assertEqual(shipment["carrier"], "OTHER")
         self.assertEqual(shipment["carrier_name_other"], "UNASSIGNED")
 
@@ -176,13 +215,13 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
 
     def test_create_shipment_for_order_validations(self):
         # 1. Unpaid order rejected
-        order = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        order = create_order([{"sku": "MUG-CER-001", "quantity": 1}], "USD")
         with self.assertRaises(ValueError) as ctx:
             store.create_shipment_for_order(
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("unpaid", str(ctx.exception).lower())
@@ -197,7 +236,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-WRONG",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("order ID mismatch", str(ctx.exception))
@@ -208,7 +247,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-WRONG",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("capture ID mismatch", str(ctx.exception))
@@ -219,7 +258,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="EUR",
             )
         self.assertIn("Currency mismatch", str(ctx.exception))
@@ -240,7 +279,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
             checkout_order_id=order["id"],
             paypal_order_id="PP-1",
             paypal_capture_id="CAP-1",
-            amount="12.99",
+            amount="18.00",
             currency="USD",
         )
         self.assertEqual(shipment["status"], "ON_HOLD")
@@ -252,7 +291,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
             checkout_order_id=order["id"],
             paypal_order_id="PP-1",
             paypal_capture_id="CAP-1",
-            amount="12.99",
+            amount="18.00",
             currency="USD",
         )
         self.assertEqual(retried["id"], shipment["id"])
@@ -263,7 +302,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-INCORRECT-RETRY",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("order ID mismatch", str(ctx.exception))
@@ -274,7 +313,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-INCORRECT-RETRY",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("capture ID mismatch", str(ctx.exception))
@@ -296,7 +335,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="GBP",
             )
         self.assertIn("Currency mismatch", str(ctx.exception))
@@ -308,7 +347,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-1",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("unpaid", str(ctx.exception).lower())
@@ -317,7 +356,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         store.set_capture(order["id"], "CAP-1", "PAID")
 
         # 13. Collision: Another order trying to use the same capture ID raises error
-        order2 = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        order2 = create_order([{"sku": "MUG-CER-001", "quantity": 1}], "USD")
         store.set_paypal_order_id(order2["id"], "PP-2")
         store.set_capture(order2["id"], "CAP-2", "PAID")
 
@@ -327,7 +366,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order2["id"],
                 paypal_order_id="PP-2",
                 paypal_capture_id="CAP-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
         self.assertIn("already belongs to another checkout order", str(ctx.exception))
@@ -342,21 +381,27 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         capture_res = capture_checkout_order(order_res["order_id"], {})
         shipment_order_id = capture_res["shipment_order_id"]
 
-        # 1. Create a DRAFT manifest for this shipment (goods being shipped, not packaging supplies)
-        goods = [
-            {"sku": "PROD-A", "description": "Handmade Ceramic Vase", "expected_qty": 2, "unit_value_cents": 2500, "fragile": True},
-            {"sku": "PROD-B", "description": "Linen Table Runner", "expected_qty": 1, "unit_value_cents": 1800, "fragile": False},
-        ]
-        manifest = create_shipment_manifest(shipment_order_id, {"items": goods, "notes": "Fragile items inside"})
+        # The paid checkout creates the manifest from the exact persisted order items.
+        manifest = get_manifest_for_shipment(shipment_order_id)
+        self.assertIsNotNone(manifest)
         self.assertEqual(manifest["status"], "DRAFT")
         self.assertEqual(manifest["shipment_order_id"], shipment_order_id)
         self.assertEqual(len(manifest["items"]), 2)
+        by_sku = {item["sku"]: item for item in manifest["items"]}
+        self.assertEqual(by_sku["MUG-CER-001"]["description"], "Ceramic Coffee Mug")
+        self.assertEqual(by_sku["MUG-CER-001"]["expected_qty"], 2)
+        self.assertTrue(by_sku["MUG-CER-001"]["fragile"])
+        self.assertEqual(by_sku["TOTE-COT-002"]["expected_qty"], 1)
+        self.assertFalse(by_sku["TOTE-COT-002"]["fragile"])
+        self.assertTrue(all(item["source_order_item_id"] for item in manifest["items"]))
 
-        # 2. Get manifest for shipment
-        fetched = get_shipment_manifest(shipment_order_id)
-        self.assertEqual(fetched["id"], manifest["id"])
+        # Retries return the same manifest rather than duplicating it.
+        recovered = store.create_manifest_from_checkout_order(
+            shipment_order_id, order_res["order_id"]
+        )
+        self.assertEqual(recovered["id"], manifest["id"])
 
-        # 3. Finalize manifest
+        # Finalize the generated manifest.
         finalized = finalize_manifest(manifest["id"])
         self.assertEqual(finalized["status"], "FINALIZED")
         self.assertIsNotNone(finalized["manifest_hash"])
@@ -392,7 +437,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         import threading
         from concurrent.futures import ThreadPoolExecutor
 
-        order = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        order = create_order([{"sku": "MUG-CER-001", "quantity": 1}], "USD")
         store.set_paypal_order_id(order["id"], "PP-CONC-1")
         store.set_capture(order["id"], "CAP-CONC-1", "PAID")
 
@@ -404,7 +449,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order["id"],
                 paypal_order_id="PP-CONC-1",
                 paypal_capture_id="CAP-CONC-1",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
 
@@ -428,8 +473,8 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         import threading
         from concurrent.futures import ThreadPoolExecutor
 
-        order_a = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
-        order_b = create_order([{"sku": "SHIP-STD-001", "quantity": 1}], "USD")
+        order_a = create_order([{"sku": "MUG-CER-001", "quantity": 1}], "USD")
+        order_b = create_order([{"sku": "MUG-CER-001", "quantity": 1}], "USD")
 
         # Mark BOTH checkout orders as PAID using distinct capture IDs
         store.set_paypal_order_id(order_a["id"], "PP-A")
@@ -443,7 +488,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
             checkout_order_id=order_a["id"],
             paypal_order_id="PP-A",
             paypal_capture_id="CAP-A",
-            amount="12.99",
+            amount="18.00",
             currency="USD",
         )
         self.assertIsNotNone(shipment_a)
@@ -458,7 +503,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order_a["id"],
                 paypal_order_id="PP-A",
                 paypal_capture_id="CAP-A",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
 
@@ -469,7 +514,7 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
                 checkout_order_id=order_b["id"],
                 paypal_order_id="PP-B",
                 paypal_capture_id="CAP-A",
-                amount="12.99",
+                amount="18.00",
                 currency="USD",
             )
 
