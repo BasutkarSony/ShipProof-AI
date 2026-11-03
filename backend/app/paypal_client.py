@@ -73,9 +73,9 @@ def submit_tracking(order: dict) -> dict:
     tracking_number = str(order.get("tracking_number", "")).strip()
     carrier = str(order.get("carrier", "")).strip().upper()
 
-    if not paypal_order_id or not paypal_order_id.isalnum() or len(paypal_order_id) > 36:
+    if not paypal_order_id or not paypal_order_id.isascii() or not paypal_order_id.isalnum() or paypal_order_id != paypal_order_id.upper() or len(paypal_order_id) > 36:
         raise ValueError("A valid stored PayPal Orders v2 order ID is required.")
-    if not capture_id or not capture_id.isalnum() or len(capture_id) > 50:
+    if not capture_id or not capture_id.isascii() or not capture_id.isalnum() or len(capture_id) > 50:
         raise ValueError("A valid stored PayPal capture ID is required.")
     if not tracking_number or len(tracking_number) > 64:
         raise ValueError("Enter a tracking number between 1 and 64 characters.")
