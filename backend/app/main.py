@@ -825,6 +825,17 @@ async def create_packing_inspection(
             detail="Inspections can only be submitted for FINALIZED manifests.",
         )
 
+    linked_shipment = (
+        get_shipment_by_order_id(manifest["shipment_order_id"])
+        if manifest.get("shipment_order_id")
+        else None
+    )
+    if linked_shipment and linked_shipment.get("tracking_submission_status") == "SUBMITTED":
+        raise HTTPException(
+            status_code=409,
+            detail="Tracking has already been submitted. Packing inspections for this shipment are closed.",
+        )
+
     # 2. Enforce photo count limits.
     if not photos:
         raise HTTPException(status_code=422, detail="At least one photograph is required.")
