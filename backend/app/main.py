@@ -462,6 +462,12 @@ def review_packing_inspection(inspection_id: str, payload: dict):
     manifest = get_manifest(inspection["manifest_id"])
     if manifest is None:
         raise HTTPException(status_code=404, detail="Inspection manifest not found.")
+    inspections = list_inspections_for_manifest(manifest["id"])
+    if not inspections or inspections[0]["id"] != inspection_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Only the latest packing inspection can receive a human review decision.",
+        )
     if manifest["status"] != "FINALIZED":
         raise HTTPException(
             status_code=409,
