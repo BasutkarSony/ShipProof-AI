@@ -28,6 +28,7 @@ from app.store import (
     create_inspection,
     get_inspection,
     list_inspections_for_manifest,
+    record_inspection_review,
     create_shipment_for_order,
     get_shipment_by_order_id,
     get_shipment_by_checkout_order_id,
@@ -37,6 +38,7 @@ from app.store import (
 import json
 from pathlib import Path
 from decimal import Decimal
+from datetime import datetime, timezone
 
 app = FastAPI(
     title="ShipProof AI API",
@@ -450,40 +452,188 @@ def paypal_verify_connection():
         raise HTTPException(status_code=502, detail=f"PayPal Sandbox OAuth failed: {str(exc)}")
 
 
-@app.post("/api/paypal/submit-tracking")
-def paypal_submit_tracking(payload: dict):
-    # Validate before any external write.
-    result = validate_order(payload)
-    if result["result"] != "PASS":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "message": "Shipment did not pass ShipProof data-quality checks. Nothing was sent to PayPal.",
-                "validation": result,
-            },
-        )
+@app.post("/api/inspections/{inspection_id}/review")
+def review_packing_inspection(inspection_id: str, payload: dict):
+    """Record an explicit human decision; Gemini output is never approval."""
+    inspection = get_inspection(inspection_id)
+    if inspection is None:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
 
-    transaction_id = str(payload.get("transaction_id", "")).strip()
-    if not transaction_id or transaction_id.upper().startswith("SANDBOX-TXN-"):
+    manifest = get_manifest(inspection["manifest_id"])
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Inspection manifest not found.")
+    if manifest["status"] != "FINALIZED":
         raise HTTPException(
-            status_code=422,
-            detail="This looks like a sample transaction ID. Use a genuine PayPal Sandbox transaction/capture ID before submitting.",
+            status_code=409,
+            detail="The manifest is not finalized; this inspection cannot be reviewed.",
         )
 
     try:
-        response = submit_tracking(payload)
-        return {
-            "submitted": True,
-            "provider": "PayPal Sandbox",
-            "validation": result,
-            "paypal_response": response,
-        }
+        reviewed = record_inspection_review(
+            inspection_id=inspection_id,
+            decision=payload.get("decision", ""),
+            reviewer_label=payload.get("reviewer_label", ""),
+            notes=payload.get("notes", ""),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message.startswith("Inspection not found:") else 409 if "already been reviewed" in message else 422
+        raise HTTPException(status_code=status_code, detail=message)
+
+    return {
+        "inspection_id": reviewed["id"],
+        "manifest_id": reviewed["manifest_id"],
+        "inspection_status": reviewed["inspection_status"],
+        "review_history": reviewed["review_history"],
+        "reviewed_at": reviewed["updated_at"],
+    }
+
+
+@app.post("/api/shipments/{shipment_order_id}/submit-tracking")
+def submit_shipment_tracking(shipment_order_id: str, payload: dict):
+    """Submit a stored paid shipment's carrier tracking after human inspection approval."""
+    shipment = get_shipment_by_order_id(shipment_order_id)
+    if shipment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Persistent PayPal-paid shipment not found. Sample shipments cannot be submitted.",
+        )
+
+    if not paypal_submissions_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="PayPal tracking submission is disabled. The Sandbox write gate is still locked.",
+        )
+
+    # Confirm the payment linkage using the local paid order, not client-supplied IDs.
+    checkout_order = get_order(shipment["checkout_order_id"])
+    if not checkout_order or checkout_order.get("payment_status") != "PAID":
+        raise HTTPException(status_code=409, detail="A verified paid checkout is required.")
+    if (
+        checkout_order.get("paypal_order_id") != shipment.get("paypal_order_id")
+        or checkout_order.get("paypal_capture_id") != shipment.get("paypal_capture_id")
+    ):
+        raise HTTPException(status_code=409, detail="Stored PayPal order/capture linkage does not match.")
+
+    manifest = get_manifest_for_shipment(shipment_order_id)
+    if not manifest or manifest.get("status") != "FINALIZED":
+        raise HTTPException(status_code=409, detail="Finalize the shipment manifest before dispatch.")
+
+    inspections = list_inspections_for_manifest(manifest["id"])
+    if not inspections or inspections[0].get("inspection_status") != "APPROVED":
+        raise HTTPException(
+            status_code=409,
+            detail="The latest packing inspection must be approved by a human reviewer before tracking can be submitted.",
+        )
+
+    tracking_number = str(payload.get("tracking_number", "")).strip()
+    carrier = str(payload.get("carrier", "")).strip().upper()
+    carrier_name_other = str(payload.get("carrier_name_other", "")).strip()
+    notify_payer = payload.get("notify_payer", False)
+    if not isinstance(notify_payer, bool):
+        raise HTTPException(status_code=422, detail="notify_payer must be true or false.")
+
+    if shipment.get("tracking_submission_status") == "SUBMITTED":
+        same_tracking = (
+            shipment.get("tracking_number") == tracking_number
+            and shipment.get("carrier") == carrier
+            and (carrier != "OTHER" or shipment.get("carrier_name_other") == carrier_name_other)
+        )
+        if same_tracking:
+            return {
+                "submitted": True,
+                "already_submitted": True,
+                "provider": "PayPal Sandbox",
+                "shipment_order_id": shipment_order_id,
+                "tracking_number": shipment["tracking_number"],
+                "carrier": shipment["carrier"],
+                "submitted_at": shipment.get("paypal_tracking_submitted_at"),
+            }
+        raise HTTPException(
+            status_code=409,
+            detail="Tracking has already been submitted for this shipment and cannot be replaced in this demo workflow.",
+        )
+
+    validation_payload = {
+        "order_id": shipment_order_id,
+        "transaction_id": shipment["paypal_capture_id"],
+        "tracking_number": tracking_number,
+        "carrier": carrier,
+        "carrier_name_other": carrier_name_other,
+        "status": "SHIPPED",
+    }
+    validation = validate_order(validation_payload)
+    if validation["result"] == "BLOCKED":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Tracking details failed ShipProof's basic data checks. Nothing was sent to PayPal.",
+                "validation": validation,
+            },
+        )
+
+    try:
+        response = submit_tracking({
+            "paypal_order_id": shipment["paypal_order_id"],
+            "paypal_capture_id": shipment["paypal_capture_id"],
+            "tracking_number": tracking_number,
+            "carrier": carrier,
+            "carrier_name_other": carrier_name_other,
+            "notify_payer": notify_payer,
+            "items": checkout_order.get("items", []),
+        })
     except PayPalConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
+        # Keep the carrier details editable so the merchant can retry after a transient failure.
+        update_shipment(
+            shipment_order_id,
+            tracking_number=tracking_number,
+            carrier=carrier,
+            carrier_name_other=carrier_name_other or "UNASSIGNED",
+            tracking_submission_status="FAILED",
+        )
         raise HTTPException(status_code=502, detail=str(exc))
+
+    if not isinstance(response, dict) or response.get("id") != shipment.get("paypal_order_id"):
+        update_shipment(
+            shipment_order_id,
+            tracking_number=tracking_number,
+            carrier=carrier,
+            carrier_name_other=carrier_name_other or "UNASSIGNED",
+            tracking_submission_status="FAILED",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal returned a successful response that did not match the stored order ID. Verify the order in Sandbox before retrying.",
+        )
+
+    submitted_at = datetime.now(timezone.utc).isoformat()
+    update_shipment(
+        shipment_order_id,
+        tracking_number=tracking_number,
+        carrier=carrier,
+        carrier_name_other=carrier_name_other or "UNASSIGNED",
+        status="SHIPPED",
+        shipped_date=datetime.now(timezone.utc).date().isoformat(),
+        tracking_submission_status="SUBMITTED",
+        paypal_tracking_submitted_at=submitted_at,
+    )
+    return {
+        "submitted": True,
+        "already_submitted": False,
+        "provider": "PayPal Sandbox",
+        "shipment_order_id": shipment_order_id,
+        "paypal_order_id": shipment["paypal_order_id"],
+        "paypal_capture_id": shipment["paypal_capture_id"],
+        "tracking_number": tracking_number,
+        "carrier": carrier,
+        "submitted_at": submitted_at,
+        "validation": validation,
+        "paypal_response": response,
+    }
 
 
 # ---------------------------------------------------------------------------
