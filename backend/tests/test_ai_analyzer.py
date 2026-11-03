@@ -194,10 +194,11 @@ class AIAnalyzerTests(unittest.TestCase):
         self.assertGreaterEqual(result["readiness_score"], 85)
         self.assertEqual(result["protection_tier"], "FULL_PROTECTION_READY")
         # Verify PayPal preview uses the exact updated shipment data
-        preview_tracker = result["paypal_payload_preview"]["trackers"][0]
-        self.assertEqual(preview_tracker["tracking_number"], "781234567890")
-        self.assertEqual(preview_tracker["carrier"], "FEDEX")
-        self.assertEqual(preview_tracker["status"], "DELIVERED")
+        preview_body = result["paypal_payload_preview"]["request_body"]
+        self.assertEqual(preview_body["capture_id"], "SANDBOX-TXN-1005")
+        self.assertEqual(preview_body["tracking_number"], "781234567890")
+        self.assertEqual(preview_body["carrier"], "FEDEX")
+        self.assertFalse(preview_body["notify_payer"])
 
     def test_missing_transaction_date_shows_policy_requires_review(self):
         """When transaction_date is absent, policy_applicability must be REQUIRES_REVIEW."""
