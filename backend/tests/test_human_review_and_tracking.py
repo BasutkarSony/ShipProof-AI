@@ -153,6 +153,28 @@ class HumanReviewAndTrackingTests(unittest.TestCase):
 
     @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
     @patch("app.main.submit_tracking")
+    def test_new_pending_inspection_supersedes_an_older_approval(self, mock_submit):
+        review_packing_inspection(
+            self.inspection["id"],
+            {
+                "decision": "APPROVED",
+                "reviewer_label": "Merchant",
+                "notes": "First packing evidence reviewed.",
+            },
+        )
+        newer_inspection = self._create_inspection()
+        self.assertEqual(newer_inspection["inspection_status"], "PENDING_HUMAN_REVIEW")
+
+        with self.assertRaises(HTTPException) as ctx:
+            submit_shipment_tracking(
+                self.shipment["order_id"],
+                {"tracking_number": "TRACK123", "carrier": "DHL"},
+            )
+        self.assertEqual(ctx.exception.status_code, 409)
+        mock_submit.assert_not_called()
+
+    @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
+    @patch("app.main.submit_tracking")
     def test_tracking_uses_persisted_paypal_ids_and_paid_order_items(self, mock_submit):
         review_packing_inspection(
             self.inspection["id"],
@@ -204,8 +226,8 @@ class HumanReviewAndTrackingTests(unittest.TestCase):
         self.assertEqual(mock_submit.call_count, 1)
 
     @patch.dict(os.environ, {"PAYPAL_TRACKING_SUBMISSION_ENABLED": "true"})
-    @patch("app.main.submit_tracking", side_effect=RuntimeError("temporary PayPal failure"))
-    def test_failed_tracking_write_can_be_retried(self, mock_submit):
+    @patch("app.main.submit_tracking")
+    def test_failed_tracking_write_can_be_retried_with_identical_details(self, mock_submit):
         review_packing_inspection(
             self.inspection["id"],
             {
@@ -214,15 +236,33 @@ class HumanReviewAndTrackingTests(unittest.TestCase):
                 "notes": "Contents visibly match.",
             },
         )
+        mock_submit.side_effect = [
+            RuntimeError("temporary PayPal failure"),
+            {"id": "PAYPALORDER123", "status": "COMPLETED"},
+        ]
+        request = {"tracking_number": "TRACK123", "carrier": "DHL"}
+
         with self.assertRaises(HTTPException) as ctx:
-            submit_shipment_tracking(
-                self.shipment["order_id"],
-                {"tracking_number": "TRACK123", "carrier": "DHL"},
-            )
+            submit_shipment_tracking(self.shipment["order_id"], request)
         self.assertEqual(ctx.exception.status_code, 502)
         saved = get_shipment_by_order_id(self.shipment["order_id"])
         self.assertEqual(saved["tracking_submission_status"], "FAILED")
         self.assertEqual(saved["status"], "ON_HOLD")
+
+        with self.assertRaises(HTTPException) as mismatch:
+            submit_shipment_tracking(
+                self.shipment["order_id"],
+                {"tracking_number": "TRACK-CHANGED", "carrier": "DHL"},
+            )
+        self.assertEqual(mismatch.exception.status_code, 409)
+        self.assertEqual(mock_submit.call_count, 1)
+
+        retried = submit_shipment_tracking(self.shipment["order_id"], request)
+        self.assertTrue(retried["submitted"])
+        saved = get_shipment_by_order_id(self.shipment["order_id"])
+        self.assertEqual(saved["tracking_submission_status"], "SUBMITTED")
+        self.assertEqual(saved["tracking_number"], "TRACK123")
+        self.assertEqual(mock_submit.call_count, 2)
 
 
 if __name__ == "__main__":
