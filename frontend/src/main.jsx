@@ -2736,7 +2736,7 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
     return () => {
       ignore = true
     }
-  }, [selectedShipment?.order_id])
+  }, [selectedShipment?.order_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch full inspection record whenever activeInspectionId changes
   useEffect(() => {
