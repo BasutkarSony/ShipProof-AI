@@ -1,6 +1,6 @@
-"""Gemini-powered packing inspection service.
+"""AI vision packing inspection service with Gemini primary and OpenAI fallback.
 
-This module is the only place in the codebase that calls the Gemini API.
+This module isolates external vision-model calls from the deterministic shipment evidence engine.
 It is intentionally isolated from the deterministic shipment evidence engine
 (ai_analyzer.py) and must not be imported by it.
 
@@ -11,9 +11,9 @@ Safety guarantees enforced here:
   to claim sealed-parcel contents are verified, and to express uncertainty
   explicitly.
 - engine_metadata is honestly labelled as an LLM (zero_hallucination: False).
-- The GEMINI_API_KEY is read from the environment and is never logged, echoed,
+- Provider API keys are read from the environment and are never logged, echoed,
   or included in any response body.
-- Gemini responses are validated for structure before persistence; malformed
+- Provider responses are validated for structure before persistence; malformed
   responses raise RuntimeError.
 - manifest_item_id values in Gemini output are cross-checked against the
   actual finalized manifest items before the result is trusted.
@@ -452,11 +452,11 @@ def _is_gemini_unavailable(exc: Exception) -> bool:
 # ---------------------------------------------------------------------------
 
 class GeminiUnavailableError(RuntimeError):
-    """Raised when the Gemini API key is not configured."""
+    """Raised when no usable vision provider is configured or available."""
 
 
 def _validate_ai_result(ai_result: dict, manifest: dict) -> None:
-    """Validate the structure of a Gemini response before persistence.
+    """Validate the structure of a vision-model response before persistence.
 
     Raises RuntimeError with a descriptive message on any violation.
     Does not modify ai_result.
@@ -468,54 +468,54 @@ def _validate_ai_result(ai_result: dict, manifest: dict) -> None:
     missing_top = _REQUIRED_TOP - ai_result.keys()
     if missing_top:
         raise RuntimeError(
-            f"Gemini response is missing required fields: {sorted(missing_top)}"
+            f"Vision response is missing required fields: {sorted(missing_top)}"
         )
 
     # image_quality
     iq = ai_result["image_quality"]
     if not isinstance(iq, dict):
-        raise RuntimeError("Gemini response: image_quality must be an object.")
+        raise RuntimeError("Vision response: image_quality must be an object.")
     if iq.get("overall") not in _VALID_QUALITY:
         raise RuntimeError(
-            f"Gemini response: image_quality.overall must be one of "
+            f"Vision response: image_quality.overall must be one of "
             f"{sorted(_VALID_QUALITY)}, got {iq.get('overall')!r}."
         )
 
     # item_checks
     item_checks = ai_result["item_checks"]
     if not isinstance(item_checks, list):
-        raise RuntimeError("Gemini response: item_checks must be an array.")
+        raise RuntimeError("Vision response: item_checks must be an array.")
 
     valid_item_ids = {item["id"] for item in manifest.get("items", [])}
     for idx, check in enumerate(item_checks):
         if not isinstance(check, dict):
-            raise RuntimeError(f"Gemini response: item_checks[{idx}] must be an object.")
+            raise RuntimeError(f"Vision response: item_checks[{idx}] must be an object.")
 
         for field in ("manifest_item_id", "description", "result",
                       "visual_evidence", "confidence"):
             if not isinstance(check.get(field), str):
                 raise RuntimeError(
-                    f"Gemini response: item_checks[{idx}].{field} must be a string."
+                    f"Vision response: item_checks[{idx}].{field} must be a string."
                 )
 
         item_id = check["manifest_item_id"]
         if valid_item_ids and item_id not in valid_item_ids:
             raise RuntimeError(
-                f"Gemini response: item_checks[{idx}].manifest_item_id "
+                f"Vision response: item_checks[{idx}].manifest_item_id "
                 f"{item_id!r} does not match any item in the finalized manifest."
             )
 
         result_val = check["result"]
         if result_val not in _VALID_RESULTS:
             raise RuntimeError(
-                f"Gemini response: item_checks[{idx}].result must be one of "
+                f"Vision response: item_checks[{idx}].result must be one of "
                 f"{sorted(_VALID_RESULTS)}, got {result_val!r}."
             )
 
         confidence = check["confidence"]
         if confidence not in _VALID_CONFIDENCE:
             raise RuntimeError(
-                f"Gemini response: item_checks[{idx}].confidence must be one of "
+                f"Vision response: item_checks[{idx}].confidence must be one of "
                 f"{sorted(_VALID_CONFIDENCE)}, got {confidence!r}."
             )
 
@@ -524,19 +524,19 @@ def _validate_ai_result(ai_result: dict, manifest: dict) -> None:
         obs_qty = check.get("observed_qty")
         if obs_qty is not None and not isinstance(obs_qty, int):
             raise RuntimeError(
-                f"Gemini response: item_checks[{idx}].observed_qty must be an "
+                f"Vision response: item_checks[{idx}].observed_qty must be an "
                 f"integer or null, got {type(obs_qty).__name__!r}."
             )
 
     # additional_observations
     ao = ai_result["additional_observations"]
     if not isinstance(ao, dict):
-        raise RuntimeError("Gemini response: additional_observations must be an object.")
+        raise RuntimeError("Vision response: additional_observations must be an object.")
     for list_field in ("possible_extra_items", "visible_product_damage",
                        "visible_packaging_damage", "uncertainty_notes"):
         if not isinstance(ao.get(list_field), list):
             raise RuntimeError(
-                f"Gemini response: additional_observations.{list_field} must be an array."
+                f"Vision response: additional_observations.{list_field} must be an array."
             )
 
 
