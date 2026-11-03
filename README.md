@@ -1,189 +1,204 @@
- <div align="center">
+# ParcelProof AI
 
-# ShipProof AI
+### PayPal-connected order fulfilment and shipment evidence
 
-### PayPal-Connected Order Fulfilment & Evidence
+**From a verified Sandbox payment to a reviewed packing record.**
 
-**From paid order to reviewed packing evidence and shipment tracking.**
+ParcelProof AI is a merchant fulfilment workspace that links PayPal Sandbox checkout to the exact purchased items, a finalized packing manifest, AI-assisted photo observations, a human review decision, and a guarded PayPal tracking workflow.
 
-Current judging implementation: [parcelproof/stage-a-b-order-checkout](https://github.com/BasutkarSony/ShipProof-AI/tree/parcelproof/stage-a-b-order-checkout).\n\nA fulfilment workspace for online merchants that connects PayPal payments to the exact products purchased, order-derived packing manifests, AI-assisted visual inspection, human review and shipment tracking.
+Built for the **PayPal AI Hackathon 2026**.
 
-<br />
-
-![Status](https://img.shields.io/badge/Status-Hackathon%20Prototype-2563EB?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![React](https://img.shields.io/badge/React-Vite-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![PayPal](https://img.shields.io/badge/Integration-PayPal%20Sandbox-003087?style=for-the-badge&logo=paypal&logoColor=white)
-
-<br />
-
-**Built for the PayPal AI Hackathon 2026**
-
-</div>
-
----
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
+![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)
+![PayPal](https://img.shields.io/badge/Payments-PayPal%20Sandbox-003087?logo=paypal&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ## The problem
 
 For small online merchants, payment details, product lists, packing checks and shipment tracking can sit in separate tools. When a buyer reports a missing or incorrect item, the merchant may have to reconstruct what was purchased, packed and shipped.
 
-**ShipProof AI connects those steps to one paid order and shipment record.**
+**ParcelProof AI connects those steps to one paid order and shipment record.**
 
-It provides a centralized workflow for reviewing shipment data, identifying evidence-quality issues, understanding potential risks, and preparing a PayPal tracking payload for review.
-
-## What ShipProof AI does
+## What it does
 
 | Capability | What it provides |
 |---|---|
 | Buyer checkout | A small storefront for physical merchandise with recipient and delivery details. |
 | PayPal payment | PayPal Sandbox Orders v2 checkout with server-priced item lines and verified capture. |
-| Order-derived manifest | Creates the packing manifest from the exact items and quantities in the paid order. |
-| Packing inspection | Uses Gemini Vision first, with an optional OpenAI Vision fallback when configured, while keeping every decision with a human reviewer. |
-| Shipment linkage | Carries the local order, PayPal order, capture and buyer delivery details into one shipment record. |
-| Evidence review | Helps merchants examine shipment data and identify evidence-quality gaps. |
-| Human packing decision | Records an append-only merchant approval, rejection or correction request separately from the AI observations. |
-| PayPal tracking submission | Sends tracking to the matching Orders v2 order and capture only after the latest inspection is approved; external writes are disabled by default. |
+| Order-derived manifest | Creates a packing manifest from the exact items and quantities in the paid order. |
+| Packing inspection | Gemini Vision first, with one bounded retry and an optional OpenAI Vision fallback. |
+| Evidence record | Stores photo hashes and the finalized manifest fingerprint with each inspection. |
+| Human review | Records an explicit merchant decision separately from model observations. |
+| PayPal tracking | Prepares and submits a tracking update to the matching Orders v2 order and capture after all required checks. |
 
-## How it works
+## Workflow
 
-```mermaid
-flowchart TD
-    A["Buyer selects merchandise"] --> B["Enter delivery address"]
-    B --> C["Approve PayPal Sandbox payment"]
-    C --> D["Verify completed capture"]
-    D --> E["Create linked shipment"]
-    E --> F["Generate manifest from paid order items"]
-    F --> G["Merchant reviews and finalizes manifest"]
-    G --> H["Upload packing photographs"]
-    H --> I["Gemini visual inspection"]
-    I --> J["Human review"]
-    J --> K["Human decision recorded"]
-    K --> L["Add carrier and tracking"]
-    L --> M["Submit tracking to matching PayPal order"]
-```
+1. Buyer selects merchandise, enters recipient details and approves a PayPal Sandbox payment.
+2. Backend verifies the completed PayPal capture, amount, currency and order linkage.
+3. ParcelProof creates a persistent shipment and a draft manifest from the purchased items.
+4. Merchant reviews and finalizes the manifest; its contents are fingerprinted.
+5. Merchant uploads up to five packing photographs.
+6. Gemini Vision inspects the photos. After a temporary Gemini outage, an optional OpenAI Vision fallback can run using all uploaded photos.
+7. The model returns structured observations and uncertainty. It never approves or rejects a shipment.
+8. A merchant reviews the evidence and records APPROVED, REJECTED or NEEDS_CORRECTION.
+9. PayPal tracking submission remains blocked until the stored payment, finalized manifest and latest human approval satisfy the backend checks.
 
-## Core workflow
+## AI and evidence safeguards
 
-### 01 — Buyer checkout
+- Gemini is the primary vision provider.
+- A single short retry is attempted for common temporary Gemini service errors.
+- If Gemini remains unavailable, the backend uses OpenAI Vision when `OPENAI_API_KEY` is configured.
+- Both providers use the same manifest prompt and server-side response validation.
+- The fallback receives every uploaded photo, up to the existing five-photo limit.
+- Provider and model names are recorded with each inspection.
+- Every inspection remains pending human review until a merchant decision is recorded.
+- The app distinguishes what is visible in photos from what is not visible. A sealed parcel's contents cannot be verified from its exterior.
+- Deterministic shipment checks use rules and text-pattern heuristics. They are advisory, not a PayPal eligibility decision.
 
-The buyer selects physical merchandise, enters a recipient and delivery address, then approves the payment in PayPal Sandbox.
-
-### 02 — Verify payment and create fulfilment records
-
-The backend calculates the total from the active catalogue and sends the persisted item lines and delivery address to PayPal Orders v2. Only a completed capture with the expected order ID, capture ID, currency and amount is marked as paid. That paid order creates one linked shipment and a DRAFT manifest derived from the exact purchased items.
-
-### 03 — Prepare and review the packing manifest
-
-The merchant reviews the purchased items, quantities, SKU, item value and fragile flags. The manifest can be finalized and fingerprinted before the packing inspection begins.
-
-### 04 — Record packing evidence
-
-Packing staff upload up to five photographs for AI visual inspection. Gemini is tried first, with one bounded retry for temporary service errors. If it remains unavailable, an optional OpenAI Vision fallback is used when OPENAI_API_KEY is configured. The same manifest prompt and response validation are applied, and all uploaded photos are sent to the fallback. The model reports visible observations and uncertainty; it cannot verify the contents of a sealed package or make the merchant's final decision. Every inspection remains pending human review.
-
-### 05 — Record the human decision
-
-A merchant records APPROVED, REJECTED or NEEDS_CORRECTION, along with a reviewer label and notes. The review history is stored separately from the AI result. A new inspection must be submitted after corrections; a reviewed inspection cannot be overwritten.
-
-### 06 — Submit carrier tracking
-
-For a persistent PayPal-paid shipment, the merchant enters the carrier and tracking number after the latest inspection is approved. The backend obtains the PayPal order ID, capture ID and purchased item lines from the stored checkout record; it does not trust client-supplied payment identifiers. Tracking is sent to the PayPal Orders v2 Add Tracking endpoint. The local write gate stays disabled until explicitly enabled for a Sandbox test. Evidence-quality checks are advisory and do not determine official PayPal Seller Protection eligibility.
-
-## Technology stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React, Vite, JavaScript, CSS |
-| Backend | Python, FastAPI |
-| Validation | Deterministic validation rules |
-| Evidence analysis | Rule-based checks and NLP-style text heuristics |
-| Payments integration | PayPal REST API – Sandbox |
-| Testing | Python unittest, Oxlint, Vite build |
-
-### Architecture
-
-```mermaid
-flowchart LR
-    UI["React Frontend"] --> API["FastAPI Backend"]
-    API --> V["Shipment Validator"]
-    API --> A["Evidence Analyzer"]
-    API --> P["PayPal Client"]
-    V --> R["Validation Results"]
-    A --> R
-    P --> S["OAuth Verification"]
-    P --> T["Orders v2 Tracking Submission"]
-    API --> H["Human Review Store"]
-    R --> UI
-    S --> UI
-    T --> UI
-```
+Neither vision model is guaranteed to be error-free or independently auditable. ParcelProof AI does not guarantee PayPal Seller Protection. PayPal makes its own decisions.
 
 ## Run locally
 
 ### Prerequisites
 
-- Python 3.11 or compatible supported version.
-- Node.js and npm.
-- Git.
-
-The commands below use **Command Prompt (CMD)**, including the integrated terminal in VS Code.
+- Python 3.11+
+- Node.js and npm
+- Git
 
 ### 1. Clone the repository
 
-\`\`\`cmd
-git clone --branch parcelproof/stage-a-b-order-checkout --single-branch https://github.com/BasutkarSony/ShipProof-AI.git
-cd ShipProof-AI
-\`\`\`
+```cmd
+git clone https://github.com/BasutkarSony/ParcelProof-AI.git
+cd ParcelProof-AI
+```
 
-### 2. Set up the backend
+### 2. Configure the backend
 
-\`\`\`cmd
+```cmd
 cd backend
 python -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install -r requirements.txt
 copy .env.example .env
-\`\`\`
+```
 
-Open \`backend/.env\` in VS Code and add your PayPal Sandbox credentials and GEMINI_API_KEY. Add OPENAI_API_KEY to enable the optional vision fallback. Keep this file private and do not commit it.
+Edit `backend/.env` and add:
 
-Start the backend in this terminal:
+- `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from a PayPal Sandbox REST app.
+- `GEMINI_API_KEY` for the primary packing-photo provider.
+- `OPENAI_API_KEY` optionally, to enable the vision fallback.
 
-\`\`\`cmd
+Keep `PAYPAL_TRACKING_SUBMISSION_ENABLED=false`. Never commit the real `.env` file or share its credentials.
+
+Start the backend:
+
+```cmd
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-\`\`\`
+```
 
-Backend: \`http://127.0.0.1:8000\`
+Backend API: `http://127.0.0.1:8000`
 
-### 3. Set up the frontend
+### 3. Start the frontend
 
-Open a **second CMD terminal** in VS Code:
+Open a second terminal at the repository root:
 
-\`\`\`cmd
+```cmd
 cd frontend
 npm ci
 npm run dev
-\`\`\`
+```
 
-Frontend: \`http://localhost:5173\`
+Frontend: `http://localhost:5173`
 
-### 4. Configure PayPal Sandbox
+The local Vite app uses `http://127.0.0.1:8000` for API requests. In production, the frontend uses the same origin as the FastAPI service.
 
-1. Create or use a PayPal Sandbox REST application.
-2. Add the Sandbox Client ID and Secret to \`backend/.env\`.
-3. Set \`FRONTEND_URL=http://localhost:5173\`.
-4. Keep \`PAYPAL_TRACKING_SUBMISSION_ENABLED=false\` for initial testing.
-5. Restart the backend after changing environment variables.
+## Create the clean GitHub repository
 
-**Never commit or share your actual \`.env\` file or API credentials.**
+The working implementation is prepared in the original development branch. To avoid carrying the old branch history into the final submission, the repository includes a PowerShell script that creates a **new public repository with one clean `main` branch and one initial snapshot commit**.
 
-## PayPal integration and safety
+Requirements: Git, [GitHub CLI](https://cli.github.com/), and a GitHub CLI login. Run `gh auth login` once if needed.
 
-Checkout and capture use PayPal Orders v2. The tracking integration uses the matching Orders v2 endpoint:
+From the root of the current ShipProof-AI working copy, first pull the latest development branch:
+
+```cmd
+git pull --ff-only origin parcelproof/stage-a-b-order-checkout
+```
+
+Then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\create-clean-repo.ps1
+```
+
+The script creates `BasutkarSony/ParcelProof-AI`, clones the latest verified source snapshot, resets its Git history, initializes `main`, and pushes it. It creates a separate folder named `ParcelProof-AI` beside the old project folder.
+
+It does not copy local `.env` files, SQLite databases, uploaded photos, virtual environments or Node dependencies. The existing ShipProof-AI repository is left unchanged as a backup.
+
+## Deploy to Render
+
+A single Docker service serves both the built React frontend and FastAPI API from one public URL. The repository includes `Dockerfile` and `render.yaml`; Render reads these through a Blueprint.
+
+1. Create the clean `ParcelProof-AI` repository using the script above.
+2. Sign in to [Render](https://render.com/).
+3. Choose **New + → Blueprint** and connect `BasutkarSony/ParcelProof-AI`.
+4. Review the `parcelproof-ai` service and confirm the deployment.
+5. Enter the PayPal Sandbox Client ID, PayPal Sandbox Secret and Gemini API key when Render prompts for them.
+6. After deployment, optionally add `OPENAI_API_KEY` in the service's Environment page to enable automatic vision fallback.
+7. Open the Render service URL and confirm `/health` returns `{"status":"ok"}`.
+
+### Hosting and storage
+
+The Blueprint uses the Singapore region and a Starter web service with a 1 GB persistent disk. The disk stores the SQLite database and uploaded inspection photos under `/var/data`, so they survive deploys and restarts.
+
+Render currently lists the Starter web service at approximately **$7/month**, with SSD storage at approximately **$0.25/GB/month**. The 1 GB disk therefore adds roughly $0.25/month. Confirm the amount shown in your Render account before approving the Blueprint. Render's free web services do not support persistent disks and lose local filesystem changes when they restart or redeploy, so the included persistent-storage configuration is deliberately paid.
+
+- [Render Blueprint guide](https://render.com/docs/infrastructure-as-code)
+- [Render pricing](https://render.com/pricing)
+- [Render persistent disks](https://render.com/docs/disks)
+
+### Deployment environment variables
+
+The Blueprint prompts for these secrets instead of storing them in Git:
+
+- `PAYPAL_CLIENT_ID`
+- `PAYPAL_CLIENT_SECRET`
+- `GEMINI_API_KEY`
+
+Optional:
+
+- `OPENAI_API_KEY` — enables fallback when Gemini is unavailable.
+- `OPENAI_VISION_MODEL` — defaults to `gpt-5.6-terra`.
+
+The Blueprint automatically sets `FRONTEND_URL` from Render's public service URL and keeps `PAYPAL_TRACKING_SUBMISSION_ENABLED=false`.
+
+## Testing
+
+Backend tests:
+
+```cmd
+cd backend
+python -m unittest discover -s tests -v
+```
+
+Frontend lint and production build:
+
+```cmd
+cd frontend
+npm ci
+npm run lint
+npm run build
+```
+
+GitHub Actions runs backend unit tests, frontend lint and the production build on pushes to `main` and on pull requests targeting `main`. Render is configured to deploy after repository checks pass.
+
+## PayPal safety
+
+Checkout and capture use PayPal Orders v2. Tracking submission uses:
 
 `POST /v2/checkout/orders/{id}/track`
 
-The backend uses the saved PayPal order ID, its completed capture ID and item lines from the paid checkout. The route rejects sample shipments, unpaid orders, unfinalized manifests and shipments whose latest packing inspection has not been approved by a human reviewer.
+The backend uses the saved PayPal order ID, completed capture ID and purchased item lines from the stored checkout record. It rejects sample shipments, unpaid orders, unfinalized manifests and shipments whose latest packing inspection has not been approved by a human reviewer.
 
 Tracking writes are disabled by default:
 
@@ -191,144 +206,51 @@ Tracking writes are disabled by default:
 PAYPAL_TRACKING_SUBMISSION_ENABLED=false
 ```
 
-Keep this setting false while checking the app. For an intentional Sandbox tracking test, enable the gate locally only after confirming the buyer payment and merchant review. A successful OAuth check alone does not submit tracking.
-
-The Orders v2 tracking API supports retrying the same capture and tracking number idempotently. Treat an uncertain network result carefully and retry with the same tracking details; do not create a different tracking update until the previous result is resolved.
+Do not enable this setting until the recipient, Sandbox payment and human review have been verified. An OAuth connection check alone does not submit tracking.
 
 Official documentation:
 
 - [PayPal Orders v2 Add Tracking API](https://developer.paypal.com/api/tracking/track-orders/use/)
 - [PayPal Supported Carriers](https://developer.paypal.com/track-orders/carriers/)
 
-## Demo scenarios
-
-The sample dataset contains shipment scenarios designed to demonstrate validation and evidence review.
-
-| Order | Demonstration scenario |
-|---|---|
-| ORD-1001 | Standard shipment record |
-| ORD-1002 | Missing tracking information |
-| ORD-1003 | Delivery date earlier than shipment date |
-| ORD-1004 | High-value shipment with signature-related evidence |
-| ORD-1005 | High-value shipment with a signature-evidence concern |
-
-### Suggested demonstration
-
-1. Start the frontend and backend.
-2. Open the shipment queue.
-3. Run the available shipment checks.
-4. Select `ORD-1002` to demonstrate missing tracking information.
-5. Select `ORD-1003` to demonstrate a chronology issue.
-6. Inspect `ORD-1005` to demonstrate evidence review and remediation.
-7. Open AI Inspections and record a human approval, rejection or correction request.
-8. For a real PayPal Sandbox checkout only, verify tracking remains blocked until the latest human approval and then demonstrate the Orders v2 tracking submission with the write gate enabled locally.
-
-## Vision provider reliability
-
-Gemini is the primary packing-inspection provider. The backend retries once for common temporary Gemini service errors and can use OpenAI Vision as a fallback when `OPENAI_API_KEY` is configured. The fallback receives all uploaded photographs (up to the existing five-photo limit) and uses structured JSON output followed by the same server-side validation.
-
-The provider and model used are recorded with each inspection. Both providers are language models: neither is guaranteed to be error-free or independently auditable. Every result remains pending human review, and an AI result cannot approve a shipment or unlock PayPal tracking.
-
-## Testing
-
-### Backend tests
-
-From the backend directory, with the virtual environment active:
-
-```cmd
-python -m unittest discover -s tests -v
-```
-
-### Frontend checks
-
-From the frontend directory:
-
-```cmd
-npx oxlint src
-npm run build
-```
-
-Use the project's installed dependencies and scripts when running the checks.
-
 ## Important limitations
 
-ShipProof AI is a hackathon prototype, not an official PayPal product.
+ParcelProof AI is a hackathon prototype, not an official PayPal product.
 
-- Current evidence analysis uses deterministic rules and text-pattern heuristics; it should not be represented as verified generative AI inference.
+- Evidence analysis uses deterministic rules and text-pattern heuristics; it is not generative AI inference.
+- Vision-model outputs can be wrong and require human review.
+- A photograph cannot prove the contents of a sealed package.
+- A merchant-entered reviewer label is not a verified identity; merchant authentication and role-based access are not implemented.
 - Text entered by a merchant is not independent proof from a carrier.
-- A readiness assessment is an advisory evidence-quality indicator, not a prediction of dispute outcomes.
-- ShipProof AI cannot guarantee PayPal Seller Protection or determine PayPal's final decision.
-- Carrier verification depends on the availability of an authoritative verification source.
+- Evidence-quality results are advisory and do not predict dispute outcomes or guarantee Seller Protection.
 - Sample shipment records are for demonstration and testing.
-- This prototype does not implement merchant authentication or role-based access control; reviewer labels are self-entered demo labels, not verified identities.
-- PayPal Sandbox authentication does not prove that tracking submission works. A real Sandbox tracking test is still required.
+- PayPal Sandbox authentication does not prove that a real Sandbox tracking update has succeeded. A deliberate tracking test remains necessary.
 
 ## Project structure
 
 ```text
-ShipProof-AI/
-│
+ParcelProof-AI/
+├── .github/workflows/ci.yml
 ├── backend/
 │   ├── app/
-│   │   ├── main.py
-│   │   ├── ai_analyzer.py
-│   │   ├── validator.py
-│   │   └── paypal_client.py
-│   │
-│   ├── data/
-│   │   └── sample_orders.json
-│   │
+│   ├── data/sample_orders.json
 │   ├── tests/
-│   │   ├── test_ai_analyzer.py
-│   │   ├── test_human_review_and_tracking.py
-│   │   ├── test_manifest.py
-│   │   ├── test_packing_inspector.py
-│   │   ├── test_paypal_checkout.py
-│   │   ├── test_paypal_to_shipment.py
-│   │   ├── test_store.py
-│   │   └── test_validator.py
-│   │
 │   ├── requirements.txt
 │   └── .env.example
-│
 ├── frontend/
 │   ├── public/
 │   ├── src/
-│   │   ├── main.jsx
-│   │   └── style.css
-│   │
 │   ├── package.json
-│   └── vite.config.js
-│
+│   └── package-lock.json
+├── scripts/create-clean-repo.ps1
+├── Dockerfile
+├── render.yaml
+├── .dockerignore
 ├── .gitignore
-├── README.md
-└── shipproof_paypal_setup.ps1
+├── LICENSE
+└── README.md
 ```
 
-## Security
+## License
 
-Do not commit:
-
-- `.env` files or API credentials.
-- Salesforce CLI state and `.sf` metadata.
-- Python virtual environments.
-- `node_modules` and generated build files.
-- Access tokens, private keys, or other confidential configuration.
-
-Review `.gitignore` before publishing changes.
-
----
-
-<div align="center">
-
-### ShipProof AI
-
-**Better shipment evidence starts with better data.**
-
-Built for the PayPal AI Hackathon 2026.
-
-</div>
-
-## Repository
-
-[GitHub Repository](https://github.com/BasutkarSony/ShipProof-AI) · [MIT License](LICENSE)
+MIT. See [LICENSE](LICENSE).
