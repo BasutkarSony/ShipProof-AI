@@ -366,6 +366,9 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertEqual(
             purchase_unit["shipping"]["address"]["country_code"], "US"
         )
+        self.assertEqual(
+            purchase_unit["shipping"]["address"]["admin_area_1"], "TX"
+        )
 
     @patch("app.main.create_paypal_order")
     @patch("app.main.get_access_token")

@@ -130,6 +130,21 @@ def _normalize_checkout_details(payload: dict) -> tuple[str, dict]:
             status_code=422,
             detail="Enter the two-letter country code, such as IN or US.",
         )
+
+    # PayPal requires admin_area_1 for these countries when a shipping
+    # address is supplied in an Orders v2 request.
+    region_required_countries = {
+        "AR", "BR", "CA", "CN", "ID", "IN", "JP", "MX", "TH", "US"
+    }
+    if (
+        address["country_code"] in region_required_countries
+        and not address["state"]
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Enter the state or region for the selected country.",
+        )
+
     if any(len(value) > 120 for value in address.values()):
         raise HTTPException(status_code=422, detail="Delivery address fields are too long.")
 

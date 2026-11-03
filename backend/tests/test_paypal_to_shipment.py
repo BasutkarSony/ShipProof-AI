@@ -112,6 +112,26 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         self.assertEqual(args.kwargs["shipping_address"]["country_code"], "US")
         self.assertEqual(args.kwargs["buyer_name"], "Demo Buyer")
 
+    def test_checkout_requires_state_for_countries_that_need_a_region(self):
+        with patch("app.main.get_access_token") as mock_token:
+            with self.assertRaises(HTTPException) as ctx:
+                create_checkout_order(
+                    {
+                        "items": [{"sku": "MUG-CER-001", "quantity": 1}],
+                        "currency": "USD",
+                        "buyer_name": "Demo Buyer",
+                        "shipping_address": {
+                            "address_line_1": "12 Example Road",
+                            "city": "Hyderabad",
+                            "postal_code": "500001",
+                            "country_code": "IN",
+                        },
+                    }
+                )
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("state or region", ctx.exception.detail.lower())
+        mock_token.assert_not_called()
+
     def test_checkout_rejects_missing_delivery_details(self):
         with patch("app.main.get_access_token") as mock_token:
             with self.assertRaises(HTTPException) as ctx:

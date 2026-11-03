@@ -515,8 +515,17 @@ export default function App() {
     const city = checkoutDetails.city.trim()
     const postalCode = checkoutDetails.postalCode.trim()
     const countryCode = checkoutDetails.countryCode.trim().toUpperCase()
-    if (!buyerName || !addressLine1 || !city || !postalCode || !/^[A-Z]{2}$/.test(countryCode)) {
-      setCheckoutError('Enter the recipient name and complete delivery address before continuing.')
+    const regionRequiredCountries = ['AR', 'BR', 'CA', 'CN', 'ID', 'IN', 'JP', 'MX', 'TH', 'US']
+    const regionRequired = regionRequiredCountries.includes(countryCode)
+    if (
+      !buyerName ||
+      !addressLine1 ||
+      !city ||
+      !postalCode ||
+      !/^[A-Z]{2}$/.test(countryCode) ||
+      (regionRequired && !checkoutDetails.state.trim())
+    ) {
+      setCheckoutError('Enter the recipient name and all required delivery address fields, including state or region where required.')
       return
     }
 
@@ -3035,6 +3044,10 @@ function CheckoutCatalogView({
   const cartItemCount = getCartItems().reduce((s, i) => s + i.quantity, 0)
   const cartTotal = getCartTotal()
   const hasItems = cartItemCount > 0
+  const regionRequiredCountries = ['AR', 'BR', 'CA', 'CN', 'ID', 'IN', 'JP', 'MX', 'TH', 'US']
+  const regionRequired = regionRequiredCountries.includes(
+    checkoutDetails.countryCode.trim().toUpperCase()
+  )
 
   return (
     <main className="main" id="main-content">
@@ -3232,7 +3245,10 @@ function CheckoutCatalogView({
                 />
               </label>
               <label className="checkout-field" htmlFor="checkout-state">
-                <span>State / region <small>(optional)</small></span>
+                <span>
+                  State / region{' '}
+                  <small>{regionRequired ? '(required)' : '(optional)'}</small>
+                </span>
                 <input
                   id="checkout-state"
                   type="text"
@@ -3240,6 +3256,7 @@ function CheckoutCatalogView({
                   maxLength={120}
                   value={checkoutDetails.state}
                   onChange={event => setCheckoutDetails(current => ({ ...current, state: event.target.value }))}
+                  required={regionRequired}
                 />
               </label>
               <label className="checkout-field" htmlFor="checkout-postal">
@@ -3287,7 +3304,8 @@ function CheckoutCatalogView({
               !checkoutDetails.addressLine1.trim() ||
               !checkoutDetails.city.trim() ||
               !checkoutDetails.postalCode.trim() ||
-              !/^[A-Z]{2}$/.test(checkoutDetails.countryCode.trim().toUpperCase())
+              !/^[A-Z]{2}$/.test(checkoutDetails.countryCode.trim().toUpperCase()) ||
+              (regionRequired && !checkoutDetails.state.trim())
             }
             aria-label={!hasItems ? 'Add items to cart before checking out' : 'Complete delivery details before PayPal checkout'}
           >
