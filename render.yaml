@@ -20,6 +20,12 @@ services:
           name: parcelproof-ai
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+      - key: PARCELPROOF_DEMO_AUTH_REQUIRED
+        value: "true"
+      - key: PARCELPROOF_DEMO_USERNAME
+        sync: false
+      - key: PARCELPROOF_DEMO_PASSWORD
+        sync: false
       - key: PAYPAL_TRACKING_SUBMISSION_ENABLED
         value: "false"
       - key: PAYPAL_CLIENT_ID
