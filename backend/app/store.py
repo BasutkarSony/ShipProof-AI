@@ -134,6 +134,16 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_packing_inspections_manifest_id
                 ON packing_inspections(manifest_id);
+            CREATE TABLE IF NOT EXISTS inspection_reviews (
+                id TEXT PRIMARY KEY,
+                inspection_id TEXT NOT NULL REFERENCES packing_inspections(id),
+                decision TEXT NOT NULL,
+                reviewer_label TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_inspection_reviews_inspection_id
+                ON inspection_reviews(inspection_id);
             CREATE TABLE IF NOT EXISTS inspection_photos (
                 id TEXT PRIMARY KEY,
                 inspection_id TEXT NOT NULL REFERENCES packing_inspections(id) ON DELETE CASCADE,
@@ -163,6 +173,8 @@ def init_db() -> None:
                 buyer_name TEXT NOT NULL DEFAULT '',
                 evidence_text TEXT NOT NULL DEFAULT '',
                 signature_obtained INTEGER NOT NULL DEFAULT 0,
+                tracking_submission_status TEXT NOT NULL DEFAULT 'NOT_SUBMITTED',
+                paypal_tracking_submitted_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -181,6 +193,11 @@ def init_db() -> None:
         _ensure_column(conn, "order_items", "fragile", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "manifest_items", "source_order_item_id", "TEXT")
         _ensure_column(conn, "shipments", "buyer_name", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(
+            conn, "shipments", "tracking_submission_status",
+            "TEXT NOT NULL DEFAULT 'NOT_SUBMITTED'"
+        )
+        _ensure_column(conn, "shipments", "paypal_tracking_submitted_at", "TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_manifest_items_source_order_item "
             "ON manifest_items(source_order_item_id)"
@@ -931,7 +948,7 @@ def create_inspection(
 
 
 def get_inspection(inspection_id: str) -> dict | None:
-    """Return an inspection record with its photo metadata, or None."""
+    """Return an inspection record with its photo metadata and human review history."""
     conn = _connect()
     try:
         row = conn.execute(
@@ -940,7 +957,6 @@ def get_inspection(inspection_id: str) -> dict | None:
         if row is None:
             return None
         record = dict(row)
-        # Deserialise stored JSON blob.
         if record.get("ai_result"):
             try:
                 record["ai_result"] = json.loads(record["ai_result"])
@@ -955,10 +971,76 @@ def get_inspection(inspection_id: str) -> dict | None:
             (inspection_id,),
         ).fetchall()
         record["photos"] = [dict(r) for r in photo_rows]
+        review_rows = conn.execute(
+            """
+            SELECT id, decision, reviewer_label, notes, created_at
+            FROM inspection_reviews WHERE inspection_id = ?
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (inspection_id,),
+        ).fetchall()
+        record["review_history"] = [dict(r) for r in review_rows]
         return record
     finally:
         conn.close()
 
+
+def record_inspection_review(
+    inspection_id: str,
+    decision: str,
+    reviewer_label: str,
+    notes: str = "",
+) -> dict:
+    """Append a human decision to an inspection that is still awaiting review."""
+    allowed = {"APPROVED", "REJECTED", "NEEDS_CORRECTION"}
+    decision = str(decision or "").strip().upper()
+    reviewer_label = str(reviewer_label or "").strip()
+    notes = str(notes or "").strip()
+
+    if decision not in allowed:
+        raise ValueError("Decision must be APPROVED, REJECTED, or NEEDS_CORRECTION.")
+    if not reviewer_label or len(reviewer_label) > 100:
+        raise ValueError("Enter a reviewer label (up to 100 characters).")
+    if len(notes) > 2000:
+        raise ValueError("Review notes must be 2,000 characters or fewer.")
+    if decision in {"REJECTED", "NEEDS_CORRECTION"} and not notes:
+        raise ValueError("Add a note explaining a rejection or requested correction.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    review_id = str(uuid.uuid4())
+    conn = _connect()
+    try:
+        with conn:
+            row = conn.execute(
+                "SELECT inspection_status FROM packing_inspections WHERE id = ?",
+                (inspection_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Inspection not found: {inspection_id}")
+            if row["inspection_status"] != "PENDING_HUMAN_REVIEW":
+                raise ValueError(
+                    "This inspection has already been reviewed. Submit a new inspection after corrections."
+                )
+            conn.execute(
+                """
+                INSERT INTO inspection_reviews
+                    (id, inspection_id, decision, reviewer_label, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (review_id, inspection_id, decision, reviewer_label, notes, now),
+            )
+            conn.execute(
+                """
+                UPDATE packing_inspections
+                SET inspection_status = ?, updated_at = ?
+                WHERE id = ? AND inspection_status = 'PENDING_HUMAN_REVIEW'
+                """,
+                (decision, now, inspection_id),
+            )
+    finally:
+        conn.close()
+
+    return get_inspection(inspection_id)
 
 def list_inspections_for_manifest(manifest_id: str) -> list[dict]:
     """Return all inspections for a manifest, most recent first."""
@@ -1268,6 +1350,8 @@ def update_shipment(order_id: str, **updates) -> dict:
             "shipping_address",
             "evidence_text",
             "signature_obtained",
+            "tracking_submission_status",
+            "paypal_tracking_submitted_at",
         }
         set_clauses = []
         vals = []
