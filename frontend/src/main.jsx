@@ -3123,6 +3123,12 @@ function InspectionsReviewView({ orders, setOrders, paypal, activeShipmentId, se
                           {inspectionDetail.photos?.map((photo, i) => (
                             <div key={photo.id || i} className="evidence-record-item">
                               <div className="evidence-record-badge">Photo #{i + 1}</div>
+                              <img
+                                className="persisted-evidence-photo"
+                                src={`${API_BASE}/api/inspections/${inspectionDetail.inspection_id}/photos/${photo.id}`}
+                                alt={`Persisted packing evidence photo ${i + 1}`}
+                                loading="lazy"
+                              />
                               <div className="evidence-record-fields">
                                 <div className="ev-row">
                                   <span className="ev-label">SHA-256 Digest:</span>
