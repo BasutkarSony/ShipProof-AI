@@ -2,11 +2,13 @@ import hashlib
 import json
 import sqlite3
 import uuid
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "shipproof.db"
+DATA_DIR = Path(os.getenv("PARCELPROOF_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+DB_PATH = DATA_DIR / "parcelproof.db"
 
 TWO_PLACES = Decimal("0.01")
 
