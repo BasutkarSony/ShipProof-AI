@@ -196,6 +196,131 @@ class PhotoValidationTests(unittest.TestCase):
                 self._pi.run_inspection({"id": "x", "manifest_hash": "h",
                                          "shipment_order_id": "o", "items": []}, [])
 
+
+    def test_openai_fallback_preserves_all_five_photos_after_gemini_503(self):
+        """The optional fallback receives every uploaded photo, not a truncated subset."""
+        from app.packing_inspector import run_inspection
+        from google.genai import errors as genai_errors
+
+        manifest = {
+            "id": "man-fallback",
+            "shipment_order_id": "ORD-FALLBACK",
+            "manifest_hash": "b" * 64,
+            "notes": None,
+            "items": [{
+                "id": "item-1", "description": "Test notebook",
+                "expected_qty": 1, "sku": "NB-001", "fragile": False,
+            }],
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            tf.write(_make_jpeg())
+            photo_path = tf.name
+
+        payload = {
+            "choices": [{
+                "message": {
+                    "content": json.dumps(_ai_result_fixture(["item-1"])),
+                },
+            }],
+        }
+        http_response = MagicMock()
+        http_response.read.return_value = json.dumps(payload).encode("utf-8")
+        context_response = MagicMock()
+        context_response.__enter__.return_value = http_response
+        context_response.__exit__.return_value = False
+
+        try:
+            photo_metas = [
+                {"id": f"photo-{index}", "path": photo_path, "mime_type": "image/jpeg"}
+                for index in range(5)
+            ]
+            with patch.dict(os.environ, {
+                "GEMINI_API_KEY": "fake-gemini-key",
+                "OPENAI_API_KEY": "fake-openai-key",
+                "OPENAI_VISION_MODEL": "unit-test-vision-model",
+            }):
+                with patch("google.genai.Client") as mock_client_cls:
+                    mock_client = MagicMock()
+                    mock_client_cls.return_value = mock_client
+                    mock_client.models.generate_content.side_effect = genai_errors.ServerError(
+                        503, "503 UNAVAILABLE"
+                    )
+                    with patch("app.packing_inspector.time.sleep"):
+                        with patch(
+                            "app.packing_inspector.urllib.request.urlopen",
+                            return_value=context_response,
+                        ) as mock_urlopen:
+                            result = run_inspection(manifest, photo_metas)
+
+            self.assertEqual(result["model_used"], "unit-test-vision-model")
+            self.assertEqual(result["engine_metadata"]["type"], "OPENAI_VISION_LLM")
+            self.assertTrue(result["ai_result"]["human_review_required"])
+            self.assertEqual(mock_client.models.generate_content.call_count, 2)
+
+            request = mock_urlopen.call_args.args[0]
+            request_payload = json.loads(request.data.decode("utf-8"))
+            image_parts = [
+                part for part in request_payload["messages"][0]["content"]
+                if part.get("type") == "image_url"
+            ]
+            self.assertEqual(len(image_parts), 5)
+            self.assertTrue(all(
+                part["image_url"]["url"].startswith("data:image/jpeg;base64,")
+                for part in image_parts
+            ))
+            self.assertTrue(request_payload["response_format"]["json_schema"]["strict"])
+        finally:
+            if os.path.exists(photo_path):
+                os.unlink(photo_path)
+
+    def test_openai_fallback_can_run_when_gemini_key_is_not_configured(self):
+        """OpenAI can be selected automatically when it is the only configured provider."""
+        from app.packing_inspector import run_inspection
+
+        manifest = {
+            "id": "man-openai-only",
+            "shipment_order_id": "ORD-OPENAI",
+            "manifest_hash": "c" * 64,
+            "items": [{
+                "id": "item-1", "description": "Test notebook",
+                "expected_qty": 1, "sku": "NB-001", "fragile": False,
+            }],
+        }
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            tf.write(_make_jpeg())
+            photo_path = tf.name
+
+        payload = {
+            "choices": [{
+                "message": {"content": json.dumps(_ai_result_fixture(["item-1"]))},
+            }],
+        }
+        http_response = MagicMock()
+        http_response.read.return_value = json.dumps(payload).encode("utf-8")
+        context_response = MagicMock()
+        context_response.__enter__.return_value = http_response
+        context_response.__exit__.return_value = False
+
+        try:
+            with patch.dict(os.environ, {
+                "GEMINI_API_KEY": "",
+                "OPENAI_API_KEY": "fake-openai-key",
+            }):
+                with patch(
+                    "app.packing_inspector.urllib.request.urlopen",
+                    return_value=context_response,
+                ):
+                    result = run_inspection(
+                        manifest,
+                        [{"id": "photo-1", "path": photo_path, "mime_type": "image/jpeg"}],
+                    )
+            self.assertEqual(result["engine_metadata"]["type"], "OPENAI_VISION_LLM")
+            self.assertTrue(result["ai_result"]["human_review_required"])
+        finally:
+            if os.path.exists(photo_path):
+                os.unlink(photo_path)
+
     def test_human_review_hardcoded_true(self):
         """Even if Gemini somehow returns false, the flag must be forced True."""
         import app.packing_inspector as pi
@@ -603,7 +728,8 @@ class InspectionAPITests(unittest.TestCase):
                         run_inspection(manifest, photo_metas)
 
                     self.assertIn("temporarily unavailable", str(ctx.exception))
-                    self.assertIn("503 UNAVAILABLE", str(ctx.exception))
+                    self.assertIn("after a retry", str(ctx.exception))
+                    self.assertEqual(mock_client.models.generate_content.call_count, 2)
                     # Ensure no secret key or stack trace is in message
                     self.assertNotIn("fake-api-key", str(ctx.exception))
         finally:
