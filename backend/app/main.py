@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.validator import validate_order
 from app.ai_analyzer import analyze_shipment_evidence
@@ -41,8 +42,8 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 app = FastAPI(
-    title="ShipProof AI API",
-    description="Pre-submission shipment evidence validation and PayPal Sandbox tracking",
+    title="ParcelProof AI API",
+    description="PayPal-connected shipment evidence and packing verification",
     version="0.2.0",
 )
 
@@ -60,11 +61,15 @@ app.add_middleware(
 )
 
 DATA_FILE = Path(__file__).parent.parent / "data" / "sample_orders.json"
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend_dist"
 
 
 @app.get("/")
 def root():
-    return {"app": "ShipProof AI", "status": "running"}
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    return {"app": "ParcelProof AI", "status": "running"}
 
 
 @app.get("/health")
@@ -1001,3 +1006,24 @@ def get_inspection_by_id(inspection_id: str):
         "created_at": inspection["created_at"],
         "updated_at": inspection["updated_at"],
     }
+
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend_routes(full_path: str):
+    """Serve built Vite assets and let the frontend handle browser routes."""
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API route not found.")
+
+    if not FRONTEND_DIST.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend build is not available.")
+
+    dist_root = FRONTEND_DIST.resolve()
+    requested_file = (FRONTEND_DIST / full_path).resolve()
+    if requested_file.is_relative_to(dist_root) and requested_file.is_file():
+        return FileResponse(requested_file)
+
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Frontend route not found.")
