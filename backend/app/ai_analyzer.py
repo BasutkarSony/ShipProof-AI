@@ -310,23 +310,24 @@ def analyze_shipment_evidence(order: Dict[str, Any]) -> Dict[str, Any]:
     )
     unauthorized_eligible = final_score >= 70 and bool(tracking_number) and bool(shipped_date)
 
-    # Formatted PayPal Add Tracking API Payload Preview (/v1/shipping/trackers-batch)
-    paypal_tracker_preview: Dict[str, Any] = {
-        "transaction_id": transaction_id,
+    # PayPal Orders v2 Add Tracking preview.
+    paypal_tracking_request_body: Dict[str, Any] = {
+        "capture_id": transaction_id,
         "tracking_number": tracking_number,
-        "status": status or "SHIPPED",
         "carrier": carrier or "OTHER",
+        "notify_payer": False,
     }
-    if shipped_date:
-        paypal_tracker_preview["shipment_date"] = shipped_date
     if carrier == "OTHER" and carrier_other:
-        paypal_tracker_preview["carrier_name_other"] = carrier_other
+        paypal_tracking_request_body["carrier_name_other"] = carrier_other
 
     paypal_payload_preview = {
-        "endpoint": "POST /v1/shipping/trackers-batch",
-        "trackers": [paypal_tracker_preview],
+        "endpoint": "POST /v2/checkout/orders/{paypal_order_id}/track",
+        "request_body": paypal_tracking_request_body,
         "submission_safety_status": "DISABLED_BY_DEFAULT",
-        "safety_gate_note": "PayPal tracking submissions are locked locally. Set PAYPAL_TRACKING_SUBMISSION_ENABLED=true only after explicit approval.",
+        "safety_gate_note": (
+            "Tracking submission requires a verified paid checkout, the latest finalized-manifest "
+            "inspection to be human-approved, and PAYPAL_TRACKING_SUBMISSION_ENABLED=true."
+        ),
     }
 
     return {
