@@ -132,6 +132,9 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
         capture_res = capture_checkout_order(order_res["order_id"], {})
 
         self.assertEqual(capture_res["payment_status"], "PAID")
+        self.assertEqual(capture_res["total"], "50.00")
+        self.assertEqual(len(capture_res["items"]), 2)
+        self.assertEqual(capture_res["items"][0]["name"], "Ceramic Coffee Mug")
         self.assertIsNotNone(capture_res.get("shipment_id"))
         self.assertIsNotNone(capture_res.get("shipment_order_id"))
 
@@ -400,6 +403,39 @@ class PayPalToShipmentIntegrationTests(unittest.TestCase):
             shipment_order_id, order_res["order_id"]
         )
         self.assertEqual(recovered["id"], manifest["id"])
+
+        # Saving a draft in the merchant UI must retain each order-item source link.
+        edited_items = [
+            {
+                "sku": item["sku"],
+                "description": item["description"],
+                "expected_qty": item["expected_qty"],
+                "unit_value_cents": item["unit_value_cents"],
+                "fragile": item["fragile"],
+                "source_order_item_id": item["source_order_item_id"],
+            }
+            for item in manifest["items"]
+        ]
+        updated = store.update_manifest(
+            manifest["id"], edited_items, notes="Checked against paid order"
+        )
+        self.assertEqual(
+            {item["source_order_item_id"] for item in updated["items"]},
+            {item["source_order_item_id"] for item in manifest["items"]},
+        )
+
+        # A source ID from outside this shipment's order must be rejected.
+        forged_items = [dict(item) for item in edited_items]
+        forged_items[0]["source_order_item_id"] = "not-an-order-item"
+        with self.assertRaises(ValueError):
+            store.update_manifest(manifest["id"], forged_items)
+
+        # Rejected edits must not damage the saved manifest.
+        saved_after_rejection = get_manifest_for_shipment(shipment_order_id)
+        self.assertEqual(
+            {item["source_order_item_id"] for item in saved_after_rejection["items"]},
+            {item["source_order_item_id"] for item in manifest["items"]},
+        )
 
         # Finalize the generated manifest.
         finalized = finalize_manifest(manifest["id"])

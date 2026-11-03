@@ -237,6 +237,9 @@ def capture_checkout_order(order_id: str, payload: dict):
             "manifest_id": existing_manifest.get("id") if existing_manifest else None,
             "buyer_name": order.get("buyer_name", ""),
             "shipping_address": order.get("shipping_address") or {},
+            "items": order.get("items", []),
+            "total": order.get("total", "0.00"),
+            "currency": order.get("currency", "USD"),
             "payment_status": order.get("payment_status"),
             "already_captured": True,
         }
@@ -385,6 +388,9 @@ def capture_checkout_order(order_id: str, payload: dict):
         "manifest_id": manifest["id"],
         "buyer_name": order.get("buyer_name", ""),
         "shipping_address": order.get("shipping_address") or {},
+        "items": order.get("items", []),
+        "total": order.get("total", "0.00"),
+        "currency": order.get("currency", "USD"),
         "payment_status": "PAID",
         "already_captured": False,
     }

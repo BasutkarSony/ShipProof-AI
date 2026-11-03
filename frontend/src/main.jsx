@@ -3453,6 +3453,27 @@ function CheckoutReturnView({ captureLoading, captureError, captureResult, navig
               </div>
             </dl>
 
+            {captureResult.items?.length > 0 && (
+              <section className="result-order-items" aria-label="Items in this order">
+                <h2>Items in this order</h2>
+                <ul>
+                  {captureResult.items.map(item => (
+                    <li key={item.id || item.sku}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <small>{item.sku} · Qty {item.quantity} × ${item.unit_price}</small>
+                      </div>
+                      <strong>${item.line_total}</strong>
+                    </li>
+                  ))}
+                </ul>
+                <div className="result-order-total">
+                  <span>Total paid</span>
+                  <strong>${captureResult.total} {captureResult.currency || 'USD'}</strong>
+                </div>
+              </section>
+            )}
+
             <div className="result-card-actions">
               {captureResult.shipment_order_id ? (
                 <button

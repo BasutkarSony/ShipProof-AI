@@ -517,6 +517,39 @@ def _compute_manifest_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _validate_manifest_source_order_items(
+    conn: sqlite3.Connection, shipment_order_id: str, items: list[dict]
+) -> None:
+    """Ensure manifest source references belong to this shipment's paid order."""
+    source_ids = [
+        str(item.get("source_order_item_id", "")).strip()
+        for item in items
+        if item.get("source_order_item_id")
+    ]
+    if not source_ids:
+        return
+
+    shipment = conn.execute(
+        "SELECT checkout_order_id FROM shipments WHERE order_id = ?",
+        (shipment_order_id,),
+    ).fetchone()
+    if not shipment:
+        raise ValueError(
+            "Order-item source references can only be attached to a checkout shipment."
+        )
+
+    checkout_order_id = shipment["checkout_order_id"]
+    for source_id in source_ids:
+        source = conn.execute(
+            "SELECT id FROM order_items WHERE id = ? AND order_id = ?",
+            (source_id, checkout_order_id),
+        ).fetchone()
+        if not source:
+            raise ValueError(
+                f"Order-item source reference '{source_id}' does not belong to shipment '{shipment_order_id}'."
+            )
+
+
 def create_manifest(shipment_order_id: str, items: list[dict], notes: str | None = None) -> dict:
     """Create a DRAFT manifest linked to a shipment evidence record.
 
@@ -535,6 +568,7 @@ def create_manifest(shipment_order_id: str, items: list[dict], notes: str | None
     conn = _connect()
     try:
         with conn:
+            _validate_manifest_source_order_items(conn, shipment_order_id, items)
             conn.execute(
                 """
                 INSERT INTO shipment_manifests
@@ -736,7 +770,11 @@ def update_manifest(manifest_id: str, items: list[dict], notes: str | None = Non
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT status FROM shipment_manifests WHERE id = ?", (manifest_id,)
+            """
+            SELECT status, shipment_order_id
+            FROM shipment_manifests WHERE id = ?
+            """,
+            (manifest_id,),
         ).fetchone()
         if row is None:
             raise ValueError(f"Manifest not found: {manifest_id}")
@@ -748,6 +786,9 @@ def update_manifest(manifest_id: str, items: list[dict], notes: str | None = Non
 
         now = datetime.now(timezone.utc).isoformat()
         with conn:
+            _validate_manifest_source_order_items(
+                conn, row["shipment_order_id"], items
+            )
             conn.execute(
                 "DELETE FROM manifest_items WHERE manifest_id = ?", (manifest_id,)
             )
@@ -756,8 +797,8 @@ def update_manifest(manifest_id: str, items: list[dict], notes: str | None = Non
                     """
                     INSERT INTO manifest_items
                         (id, manifest_id, sku, description, expected_qty,
-                         unit_value_cents, fragile)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                         unit_value_cents, fragile, source_order_item_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -767,6 +808,9 @@ def update_manifest(manifest_id: str, items: list[dict], notes: str | None = Non
                         int(item["expected_qty"]),
                         int(item["unit_value_cents"]) if item.get("unit_value_cents") is not None else None,
                         1 if item.get("fragile") else 0,
+                        str(item["source_order_item_id"]).strip()
+                        if item.get("source_order_item_id")
+                        else None,
                     ),
                 )
             conn.execute(
