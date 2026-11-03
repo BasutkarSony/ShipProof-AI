@@ -6,7 +6,7 @@
 
 **From paid order to reviewed packing evidence and shipment tracking.**
 
-A fulfilment workspace for online merchants that connects PayPal payments to the exact products purchased, order-derived packing manifests, AI-assisted visual inspection, human review and shipment tracking.
+Current judging implementation: [parcelproof/stage-a-b-order-checkout](https://github.com/BasutkarSony/ShipProof-AI/tree/parcelproof/stage-a-b-order-checkout).\n\nA fulfilment workspace for online merchants that connects PayPal payments to the exact products purchased, order-derived packing manifests, AI-assisted visual inspection, human review and shipment tracking.
 
 <br />
 
@@ -42,7 +42,7 @@ It provides a centralized workflow for reviewing shipment data, identifying evid
 | Packing inspection | Uses Gemini Vision first, with an optional OpenAI Vision fallback when configured, while keeping every decision with a human reviewer. |
 | Shipment linkage | Carries the local order, PayPal order, capture and buyer delivery details into one shipment record. |
 | Evidence review | Helps merchants examine shipment data and identify evidence-quality gaps. |
-| Human packing decision | Records an append-only merchant approval, rejection or correction request separately from Gemini's observations. |
+| Human packing decision | Records an append-only merchant approval, rejection or correction request separately from the AI observations. |
 | PayPal tracking submission | Sends tracking to the matching Orders v2 order and capture only after the latest inspection is approved; external writes are disabled by default. |
 
 ## How it works
