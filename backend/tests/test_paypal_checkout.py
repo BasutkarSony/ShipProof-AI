@@ -744,7 +744,11 @@ class PayPalCheckoutTests(unittest.TestCase):
             capture_checkout_order(create_result["order_id"], {})
 
         self.assertEqual(ctx.exception.status_code, 422)
-        self.assertIn("currency is not USD", str(ctx.exception.detail))
+        self.assertEqual(
+            ctx.exception.detail["message"],
+            "PayPal capture currency does not match the checkout order currency.",
+        )
+        self.assertEqual(ctx.exception.detail["captured_currency"], "EUR")
 
         order = get_order(create_result["order_id"])
         self.assertEqual(order["payment_status"], "FAILED")
