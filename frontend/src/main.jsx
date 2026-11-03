@@ -1030,26 +1030,26 @@ export default function App() {
 
                   <div className="code-preview-card">
                     <div className="code-header">
-                      <span>PAYPAL SANDBOX ADD TRACKING PREVIEW (POST /v1/shipping/trackers-batch)</span>
+                      <span>PAYPAL ORDERS V2 TRACKING PREVIEW ({currentAiResult.paypal_payload_preview?.endpoint || 'Orders v2'})</span>
                       <button
                         className="btn-secondary"
                         style={{ padding: '4px 8px', fontSize: '10px' }}
-                        onClick={() => copyPayload(currentAiResult.paypal_payload_preview?.trackers)}
+                        onClick={() => copyPayload(currentAiResult.paypal_payload_preview?.request_body)}
                         aria-label={copiedPayload ? 'Copied to clipboard' : 'Copy JSON payload to clipboard'}
                       >
                         {copiedPayload ? 'Copied ✓' : 'Copy JSON'}
                       </button>
                     </div>
                     <pre className="code-pre">
-                      {JSON.stringify(currentAiResult.paypal_payload_preview?.trackers, null, 2)}
+                      {JSON.stringify(currentAiResult.paypal_payload_preview?.request_body, null, 2)}
                     </pre>
                     <div className="safety-gate-notice">
                       <span style={{ display: 'grid', placeItems: 'center' }}><LockIcon /></span>
                       <span>
-                        <strong>Safety Gate Active:</strong> Submissions are locked locally (<code>PAYPAL_TRACKING_SUBMISSION_ENABLED=false</code>). No tracking records will be sent to PayPal.
+                        <strong>Preview only.</strong> Actual tracking submission is available from AI Inspections after the latest packing inspection is human-approved. The backend supplies the stored PayPal order ID, capture ID and paid order items. The Sandbox write gate remains locked until explicitly enabled.
                       </span>
                     </div>
-                  </div>
+                  </div>>
                 </>
               ) : null}
             </div>
