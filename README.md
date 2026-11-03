@@ -39,7 +39,7 @@ It provides a centralized workflow for reviewing shipment data, identifying evid
 | Buyer checkout | A small storefront for physical merchandise with recipient and delivery details. |
 | PayPal payment | PayPal Sandbox Orders v2 checkout with server-priced item lines and verified capture. |
 | Order-derived manifest | Creates the packing manifest from the exact items and quantities in the paid order. |
-| Packing inspection | Uses Gemini for visual observations while keeping the decision with a human reviewer. |
+| Packing inspection | Uses Gemini Vision first, with an optional OpenAI Vision fallback when configured, while keeping every decision with a human reviewer. |
 | Shipment linkage | Carries the local order, PayPal order, capture and buyer delivery details into one shipment record. |
 | Evidence review | Helps merchants examine shipment data and identify evidence-quality gaps. |
 | Human packing decision | Records an append-only merchant approval, rejection or correction request separately from Gemini's observations. |
@@ -79,11 +79,11 @@ The merchant reviews the purchased items, quantities, SKU, item value and fragil
 
 ### 04 — Record packing evidence
 
-Packing staff upload photographs for Gemini visual inspection. The model reports visible observations and uncertainty; it cannot verify the contents of a sealed package or make the merchant's final decision. Every inspection remains pending human review.
+Packing staff upload up to five photographs for AI visual inspection. Gemini is tried first, with one bounded retry for temporary service errors. If it remains unavailable, an optional OpenAI Vision fallback is used when OPENAI_API_KEY is configured. The same manifest prompt and response validation are applied, and all uploaded photos are sent to the fallback. The model reports visible observations and uncertainty; it cannot verify the contents of a sealed package or make the merchant's final decision. Every inspection remains pending human review.
 
 ### 05 — Record the human decision
 
-A merchant records APPROVED, REJECTED or NEEDS_CORRECTION, along with a reviewer label and notes. The review history is stored separately from Gemini's AI result. A new inspection must be submitted after corrections; a reviewed inspection cannot be overwritten.
+A merchant records APPROVED, REJECTED or NEEDS_CORRECTION, along with a reviewer label and notes. The review history is stored separately from the AI result. A new inspection must be submitted after corrections; a reviewed inspection cannot be overwritten.
 
 ### 06 — Submit carrier tracking
 
@@ -131,7 +131,7 @@ The commands below use **Command Prompt (CMD)**, including the integrated termin
 ### 1. Clone the repository
 
 \`\`\`cmd
-git clone https://github.com/BasutkarSony/ShipProof-AI.git
+git clone --branch parcelproof/stage-a-b-order-checkout --single-branch https://github.com/BasutkarSony/ShipProof-AI.git
 cd ShipProof-AI
 \`\`\`
 
@@ -145,7 +145,7 @@ python -m pip install -r requirements.txt
 copy .env.example .env
 \`\`\`
 
-Open \`backend/.env\` in VS Code and add your PayPal Sandbox credentials. Keep this file private and do not commit it.
+Open \`backend/.env\` in VS Code and add your PayPal Sandbox credentials and GEMINI_API_KEY. Add OPENAI_API_KEY to enable the optional vision fallback. Keep this file private and do not commit it.
 
 Start the backend in this terminal:
 
@@ -222,6 +222,12 @@ The sample dataset contains shipment scenarios designed to demonstrate validatio
 6. Inspect `ORD-1005` to demonstrate evidence review and remediation.
 7. Open AI Inspections and record a human approval, rejection or correction request.
 8. For a real PayPal Sandbox checkout only, verify tracking remains blocked until the latest human approval and then demonstrate the Orders v2 tracking submission with the write gate enabled locally.
+
+## Vision provider reliability
+
+Gemini is the primary packing-inspection provider. The backend retries once for common temporary Gemini service errors and can use OpenAI Vision as a fallback when `OPENAI_API_KEY` is configured. The fallback receives all uploaded photographs (up to the existing five-photo limit) and uses structured JSON output followed by the same server-side validation.
+
+The provider and model used are recorded with each inspection. Both providers are language models: neither is guaranteed to be error-free or independently auditable. Every result remains pending human review, and an AI result cannot approve a shipment or unlock PayPal tracking.
 
 ## Testing
 
